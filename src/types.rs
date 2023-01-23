@@ -10,10 +10,9 @@ const BTRFS_LABEL_SIZE: usize = 256;
 pub const BTRFS_MAGIC: u64 = 0x4D5F53665248425F;
 const BTRFS_NUM_BACKUP_ROOTS: usize = 4;
 
-pub const BtrfsCsumType_CRC32: u8 = 0;
-pub const BtrfsCsumType_XXHASH: u8 = 1;
-pub const BtrfsCsumType_SHA256: u8 = 2;
-pub const BtrfsCsumType_BLAKE2: u8 = 3;
+pub const BTRFS_CHUNK_ITEM_KEY: u8 = 228;
+
+pub const BTRFS_FIRST_CHUNK_TREE_OBJECTID: u64 = 256;
 
 /*
   repr(u16) will not work on big-endian architectures. We could work around this with target_endian confg so that we declare these values with swapped bytes on big-endian systems. But I'm not going to write code I'm not going to test.
@@ -35,12 +34,14 @@ pub type LE32 = u32;
 pub type LE64 = u64;
 
 pub type BtrfsCsum = [u8; BTRFS_CSUM_SIZE];
+pub type BtrfsUuid = [u8; BTRFS_UUID_SIZE];
+pub type BtrfsFsid = [u8; BTRFS_FSID_SIZE];
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct btrfs_super_block {
     pub csum: BtrfsCsum,
-    pub fsid: [u8; BTRFS_FSID_SIZE],
+    pub fsid: BtrfsFsid,
     pub bytenr: LE64,
     pub flags: LE64,
     pub magic: LE64,
@@ -71,7 +72,7 @@ pub struct btrfs_super_block {
     pub label: [u8; BTRFS_LABEL_SIZE],
     pub cache_generation: LE64,
     pub uuid_tree_generation: LE64,
-    pub metadata_uuid: [u8; BTRFS_FSID_SIZE],
+    pub metadata_uuid: BtrfsFsid, //fsid vs uuid as per ctree.h
     pub nr_global_roots: LE64,
     reserved: [LE64; 27],
     pub sys_chunk_array: [u8; BTRFS_SYSTEM_CHUNK_ARRAY_SIZE],
@@ -119,30 +120,30 @@ pub struct btrfs_root_backup {
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct btrfs_dev_item {
-    devid: LE64,
-    total_bytes: LE64,
-    bytes_used: LE64,
-    io_align: LE32,
-    io_width: LE32,
-    sector_size: LE32,
-    r#type: LE64,
-    generation: LE64,
-    start_offset: LE64,
-    dev_group: LE32,
-    seek_speed: u8,
-    bandwidth: u8,
-    uuid: [u8; BTRFS_UUID_SIZE],
-    fsid: [u8; BTRFS_UUID_SIZE],
+    pub devid: LE64,
+    pub total_bytes: LE64,
+    pub bytes_used: LE64,
+    pub io_align: LE32,
+    pub io_width: LE32,
+    pub sector_size: LE32,
+    pub r#type: LE64,
+    pub generation: LE64,
+    pub start_offset: LE64,
+    pub dev_group: LE32,
+    pub seek_speed: u8,
+    pub bandwidth: u8,
+    pub uuid: BtrfsUuid,
+    pub fsid: BtrfsFsid,
 }
 
 #[repr(C, packed)]
 pub struct btrfs_header {
-    csum: [u8; BTRFS_CSUM_SIZE],
-    fsid: [u8; BTRFS_FSID_SIZE],
+    csum: BtrfsCsum,
+    fsid: BtrfsFsid,
     bytenr: LE64,
     flags: LE64,
 
-    chunk_tree_uuid: [u8; BTRFS_UUID_SIZE],
+    chunk_tree_uuid: BtrfsUuid,
     generation: LE64,
     owner: LE64,
     nritems: LE32,
@@ -151,7 +152,29 @@ pub struct btrfs_header {
 
 #[repr(C, packed)]
 pub struct btrfs_disk_key {
-    objectid: LE64,
-    r#type: u8,
-    offset: LE64,
+    pub objectid: LE64,
+    pub r#type: u8,
+    pub offset: LE64,
+}
+
+#[repr(C, packed)]
+pub struct btrfs_stripe {
+    pub devid: LE64,
+    pub offset: LE64,
+    pub dev_uuid: BtrfsUuid,
+}
+
+#[repr(C, packed)]
+pub struct btrfs_chunk {
+    pub length: LE64,
+    pub owner: LE64,
+    pub stripe_len: LE64,
+    pub r#type: LE64,
+    pub io_align: LE32,
+    pub io_width: LE32,
+    pub sector_size: LE32,
+    pub num_stripes: LE16,
+    pub sub_stripes: LE16,
+    pub stripe: btrfs_stripe,
+    /* additional stripes go here */
 }
