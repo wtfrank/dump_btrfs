@@ -1,4 +1,5 @@
 use crate::types::*;
+use crate::mapped_file::MappedFile;
 use anyhow::*;
 use crc::{Crc, CRC_32_ISCSI};
 use std::collections::HashMap;
@@ -18,9 +19,6 @@ use std::rc::Rc;
 /// This programme does none of this, requiring the user to provide a list
 /// of devices, and relies on the superblock already being known to be
 /// valid.
-///
-/// FIXME: to support ssds, check all superblocks and load the one with
-/// the highest generation
 ///
 /// btrfs_new_fs_info
 /// btrfs_scan_fs_devices
@@ -121,6 +119,8 @@ fn dump_chunks(sb: &btrfs_super_block) {
         assert_eq!(key.r#type, BTRFS_CHUNK_ITEM_KEY);
         assert_eq!(objectid, BTRFS_FIRST_CHUNK_TREE_OBJECTID);
         assert_eq!(offset, chunk_root);
+        //disk key offset is the virtual location
+        //stripe devid/offset is the physical location
         println!("chunk: objectid {objectid} offset {offset} length {length} owner {owner} num_stripes: {num_stripes}");
         dump_stripe(&chunk.stripe);
         for stripe in extra_stripes {
@@ -171,7 +171,7 @@ fn csum_data_crc32(buf: &[u8]) -> [u8; BTRFS_CSUM_SIZE] {
 
 struct DeviceInfo {
     path: PathBuf,
-    file: File,
+    file: MappedFile,
     devid: LE64,
     dev_uuid: BtrfsUuid,
 }
@@ -180,7 +180,8 @@ pub fn dump(paths: &Vec<PathBuf>) -> Result<()> {
     let mut fsid = None;
     let mut devid_map = HashMap::<LE64, Rc<DeviceInfo>>::new();
     let mut devuuid_map = HashMap::<BtrfsUuid, Rc<DeviceInfo>>::new();
-    let mut master_sb = None;
+    let mut master_sb:Option<btrfs_super_block> = None;
+    let mut initial_chunks = Vec::new();
     for path in paths {
         println!("checking {}", path.display());
         let sb = load_sb(path)?;
@@ -189,15 +190,27 @@ pub fn dump(paths: &Vec<PathBuf>) -> Result<()> {
             Some(f) => assert_eq!(sb.fsid, f),
         };
         assert_eq!(sb.dev_item.fsid, fsid.unwrap());
+        if let Some(prev_sb) = master_sb {
+          let prev_num_devices = prev_sb.num_devices;
+          let num_devices = sb.num_devices;
+          assert_eq!(prev_num_devices, num_devices);
+        }
+
+
         let di = Rc::new(DeviceInfo {
             path: path.clone(),
-            file: File::open(path)?,
+            file: MappedFile::open(path)?,
             devid: sb.dev_item.devid,
             dev_uuid: sb.dev_item.uuid.clone(),
         });
         devid_map.insert(di.devid.clone(), Rc::clone(&di));
         devuuid_map.insert(di.dev_uuid.clone(), Rc::clone(&di));
         master_sb = Some(sb);
+        if initial_chunks.len() == 0 {
+          for (key, chunk, extra_stripes) in SysChunkIter::new(&sb) {
+            initial_chunks.push( (key, chunk, extra_stripes ));
+          }
+        }
     }
     assert!(master_sb.is_some());
     let sb = master_sb.unwrap();
@@ -208,11 +221,14 @@ pub fn dump(paths: &Vec<PathBuf>) -> Result<()> {
     let num_devices = sb.num_devices;
     println!("{}/{} devices present", devid_map.len(), num_devices);
 
+    //let chunk_tree = load_chunk_tree(
+
     //TODO: load all superblocks on each device and check generation
-    //TODO: check superblocks agree about the number of devices
     //TODO: check a device is available containing the chunk tree root
     //TODO: build chunk tree
     //TODO: do we need log tree?
+    //TODO: which trees (if any) do we keep in memory, and which do we read from disc on demand via MappedFile?
+    //TODO: mem mapped access?
     //TODO: build root tree
     //TODO: load extent tree
     //TODO: command line argument to interpret a particular block and write it to a file
