@@ -1,6 +1,6 @@
 mod btrfs;
-mod types;
 mod mapped_file;
+mod types;
 use clap::Parser;
 
 /// access internal structures in an unmounted btrfs filesystem

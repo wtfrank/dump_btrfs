@@ -10,7 +10,7 @@ const BTRFS_LABEL_SIZE: usize = 256;
 pub const BTRFS_MAGIC: u64 = 0x4D5F53665248425F;
 const BTRFS_NUM_BACKUP_ROOTS: usize = 4;
 
-pub const BTRFS_CHUNK_ITEM_KEY: u8 = 228;
+pub const BTRFS_CHUNK_TREE_OBJECTID: u64 = 3;
 
 pub const BTRFS_FIRST_CHUNK_TREE_OBJECTID: u64 = 256;
 
@@ -25,6 +25,53 @@ pub enum BtrfsCsumType {
     XXHASH = 1,
     SHA256 = 2,
     BLAKE2 = 3,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(dead_code)]
+pub enum BtrfsItemType {
+    INODE_ITEM = 0x01,
+    INODE_REF = 0x0c,
+    INODE_EXTREF = 0x0d,
+    XATTR_ITEM = 0x18,
+    VERITY_DESC_ITEM = 0x24,
+    VERITY_MERKLE_ITEM = 0x25,
+    ORPHAN_ITEM = 0x30,
+    DIR_LOG_ITEM = 0x3c,
+    DIR_LOG_INDEX = 0x48,
+    DIR_ITEM = 0x54,
+    DIR_INDEX = 0x60,
+    EXTENT_DATA = 0x6c,
+    CSUM_ITEM = 0x78,
+    EXTENT_CSUM = 0x80,
+    ROOT_ITEM = 0x84,
+    ROOT_BACKREF = 0x90,
+    ROOT_REF = 0x9c,
+    EXTENT_ITEM = 0xa8,
+    METADATA_ITEM = 0xa9,
+    TREE_BLOCK_REF = 0xb0,
+    EXTENT_DATA_REF = 0xb2,
+    EXTENT_REF_V0 = 0xb4,
+    SHARED_BLOCK_REF = 0xb6,
+    SHARED_DATA_REF = 0xb8,
+    BLOCK_GROUP_ITEM = 0xc0,
+    FREE_SPACE_INFO = 0xc6,
+    FREE_SPACE_EXTENT = 0xc7,
+    FREE_SPACE_BITMAP = 0xc8,
+    DEV_EXTENT = 0xcc,
+    DEV_ITEM = 0xd8,
+    CHUNK_ITEM = 0xe4,
+    QGROUP_STATUS = 0xf0,
+    QGROUP_INFO = 0xf2,
+    QGROUP_LIMIT = 0xf4,
+    QGROUP_RELATION = 0xf6,
+    TEMPORARY_ITEM = 0xf8,
+    PERSISTENT_ITEM = 0xf9,
+    DEV_REPLACE = 0xfa,
+    UUID_KEY_SUBVOL = 0xfb,
+    UUID_KEY_RECEIVED_SUBVOL = 0xfc,
+    STRING_ITEM = 0xfd,
 }
 
 //type LE64 = endian_types::Endian<u64, endian_types::LittleEndian>;
@@ -136,24 +183,41 @@ pub struct btrfs_dev_item {
     pub fsid: BtrfsFsid,
 }
 
+/* header is stored at the start of every tree node */
 #[repr(C, packed)]
 pub struct btrfs_header {
-    csum: BtrfsCsum,
-    fsid: BtrfsFsid,
-    bytenr: LE64,
-    flags: LE64,
+    pub csum: BtrfsCsum,
+    pub fsid: BtrfsFsid,
+    pub bytenr: LE64,
+    pub flags: LE64,
 
-    chunk_tree_uuid: BtrfsUuid,
-    generation: LE64,
-    owner: LE64,
-    nritems: LE32,
-    level: u8,
+    pub chunk_tree_uuid: BtrfsUuid,
+    pub generation: LE64,
+    pub owner: LE64,
+    pub nritems: LE32,
+    pub level: u8,
+}
+
+/* leaf nodes are full of btrfs_items, and data */
+#[repr(C, packed)]
+pub struct btrfs_item {
+    pub key: btrfs_disk_key,
+    pub offset: LE32, //counting starts at end of btrfs_header
+    pub size: LE32,
+}
+
+/* non-leaf nodes are full of btrfs_key_ptrs */
+#[repr(C, packed)]
+pub struct btrfs_key_ptr {
+    pub key: btrfs_disk_key,
+    pub blockptr: LE64,
+    pub generation: LE64,
 }
 
 #[repr(C, packed)]
 pub struct btrfs_disk_key {
     pub objectid: LE64,
-    pub r#type: u8,
+    pub r#type: BtrfsItemType,
     pub offset: LE64,
 }
 
