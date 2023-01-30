@@ -1,5 +1,6 @@
 use anyhow::*;
 use libc::c_void;
+use more_asserts::*;
 use std::fs::File;
 use std::ops::Index;
 use std::os::fd::AsRawFd;
@@ -18,17 +19,16 @@ impl MappedFile {
     pub fn open(file: &Path) -> Result<MappedFile> {
         let f = File::open(file)?;
         let md = f.metadata()?;
-        let len;
-        if md.is_file() {
-            len = md.len() as usize;
+        let len = if md.is_file() {
+            md.len() as usize
         } else {
             //assume block device
             let mut len64 = 0_u64;
             let len_ref = &mut len64 as *mut u64;
             let ret = unsafe { ioctls::blkgetsize64(f.as_raw_fd(), len_ref) };
             assert_eq!(0, ret);
-            len = len64 as usize;
-        }
+            len64 as usize
+        };
         let ps = sysconf::page::pagesize();
         let mapping_size = ((len + ps - 1) / ps) * ps;
         let p = unsafe {
@@ -62,6 +62,17 @@ impl MappedFile {
             panic!("access beyond end of file");
         }
         unsafe { &*((self.pointer as usize + offset) as *mut c_void as *const T) }
+    }
+
+    /// Returns a slice of u8s representing part of the mapped file
+    pub fn slice(&self, offset: usize, length: usize) -> &[u8] {
+        assert_le!(offset + length, self.len);
+        unsafe {
+            std::slice::from_raw_parts(
+                &*((self.pointer as usize + offset) as *mut c_void as *const u8),
+                length,
+            )
+        }
     }
 }
 

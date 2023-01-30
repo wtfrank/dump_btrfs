@@ -110,7 +110,6 @@ pub struct btrfs_super_block {
     pub compat_flags: LE64,
     pub compat_ro_flags: LE64,
     pub incompat_flags: LE64,
-    //pub csum_type: LE16,
     pub csum_type: BtrfsCsumType,
     pub root_level: u8,
     pub chunk_root_level: u8,
