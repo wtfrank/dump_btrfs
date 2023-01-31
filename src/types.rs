@@ -19,7 +19,7 @@ pub const BTRFS_FIRST_CHUNK_TREE_OBJECTID: u64 = 256;
 */
 #[repr(u16)]
 #[derive(Clone, Copy)]
-#[allow(dead_code)]
+#[allow(dead_code, non_camel_case_types)]
 pub enum BtrfsCsumType {
     CRC32 = 0,
     XXHASH = 1,
@@ -29,7 +29,7 @@ pub enum BtrfsCsumType {
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[allow(dead_code)]
+#[allow(dead_code, non_camel_case_types)]
 pub enum BtrfsItemType {
     INODE_ITEM = 0x01,
     INODE_REF = 0x0c,

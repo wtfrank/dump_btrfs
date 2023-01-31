@@ -1,4 +1,3 @@
-use crate::btrfs::load_virt_block;
 use crate::types::*;
 
 pub struct BtrfsLeafNodeIter<'a> {
@@ -12,7 +11,7 @@ pub struct BtrfsLeafNodeIter<'a> {
 /// and iterate through the key pointers/items, or perform
 /// binary search to locate a key pointer/item matching a spec
 
-pub fn BtrfsLeafNode(block: &[u8]) -> BtrfsLeafNodeIter {
+pub fn btrfs_leaf_node(block: &[u8]) -> BtrfsLeafNodeIter {
     BtrfsLeafNodeIter { block, cur_item: 0 }
 }
 
@@ -37,9 +36,9 @@ impl<'a> Iterator for BtrfsLeafNodeIter<'a> {
         self.cur_item += 1;
         let item = unsafe { &*((self.block.as_ptr() as usize + offset) as *const btrfs_item) };
         let data_offset = std::mem::size_of::<btrfs_header>() + item.offset as usize;
-        return Some((
+        Some((
             item,
             &self.block[data_offset..(data_offset + item.size as usize)],
-        ));
+        ))
     }
 }

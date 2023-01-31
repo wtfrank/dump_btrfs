@@ -33,7 +33,7 @@ impl MappedFile {
         let mapping_size = ((len + ps - 1) / ps) * ps;
         let p = unsafe {
             libc::mmap(
-                0 as *mut c_void,
+                std::ptr::null_mut::<c_void>(),
                 len,
                 libc::PROT_READ,
                 libc::MAP_PRIVATE,
@@ -102,42 +102,42 @@ mod tests {
 
     #[test]
     fn file_index() -> Result<()> {
-        let mf = MappedFile::open(&Path::new("Cargo.toml"))?;
-        assert_eq!(mf[0], '[' as u8);
-        assert_eq!(mf[1], 'p' as u8);
-        assert_eq!(mf[2], 'a' as u8);
-        assert_eq!(mf[3], 'c' as u8);
-        assert_eq!(mf[4], 'k' as u8);
-        assert_eq!(mf[0], '[' as u8);
+        let mf = MappedFile::open(Path::new("Cargo.toml"))?;
+        assert_eq!(mf[0], b'[');
+        assert_eq!(mf[1], b'p');
+        assert_eq!(mf[2], b'a');
+        assert_eq!(mf[3], b'c');
+        assert_eq!(mf[4], b'k');
+        assert_eq!(mf[0], b'[');
         Ok(())
     }
 
     #[test]
     fn file_at() -> Result<()> {
-        let mf = MappedFile::open(&Path::new("Cargo.toml"))?;
-        assert_eq!(*mf.at::<u8>(0), '[' as u8);
-        assert_eq!(*mf.at::<u8>(1), 'p' as u8);
+        let mf = MappedFile::open(Path::new("Cargo.toml"))?;
+        assert_eq!(*mf.at::<u8>(0), b'[');
+        assert_eq!(*mf.at::<u8>(1), b'p');
 
         assert_eq!(*mf.at::<u16>(0), unsafe {
-            std::mem::transmute::<[u8; 2], u16>(['[' as u8, 'p' as u8])
+            std::mem::transmute::<[u8; 2], u16>([b'[', b'p'])
         });
         assert_eq!(*mf.at::<u16>(1), unsafe {
-            std::mem::transmute::<[u8; 2], u16>(['p' as u8, 'a' as u8])
+            std::mem::transmute::<[u8; 2], u16>([b'p', b'a'])
         });
 
         Ok(())
     }
     #[test]
     #[should_panic(expected = "access beyond end of file")]
-    fn file_index_panic() -> () {
-        let mf = MappedFile::open(&Path::new("Cargo.toml")).unwrap();
+    fn file_index_panic() {
+        let mf = MappedFile::open(Path::new("Cargo.toml")).unwrap();
         mf[mf.len];
     }
 
     #[test]
     #[should_panic]
-    fn file_at_panic() -> () {
-        let mf = MappedFile::open(&Path::new("Cargo.toml")).unwrap();
+    fn file_at_panic() {
+        let mf = MappedFile::open(Path::new("Cargo.toml")).unwrap();
         mf.at::<u8>(mf.len);
     }
 }

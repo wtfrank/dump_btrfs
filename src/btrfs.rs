@@ -168,7 +168,7 @@ fn csum_data_crc32(buf: &[u8]) -> [u8; BTRFS_CSUM_SIZE] {
     let mut ret = [0_u8; BTRFS_CSUM_SIZE];
     let cs = CASTAGNOLI.checksum(buf).to_le_bytes();
     for i in 0..cs.len() {
-        ret[i] = cs[i];
+        ret[..cs.len()].copy_from_slice(&cs[..]);
     }
     ret
 }
@@ -202,7 +202,7 @@ pub struct FsInfo {
 }
 
 #[derive(Clone, Copy)]
-pub struct node_search_option {
+pub struct NodeSearchOption {
     min_object_id: LE64,
     max_object_id: LE64,
     min_item_type: BtrfsItemType,
@@ -212,15 +212,15 @@ pub struct node_search_option {
 }
 
 impl FsInfo {
-    pub fn search_node(&self, tree_root: LE64, options: &node_search_option) -> BtrfsNodeIter {
-        BtrfsNodeIter::new(&self, tree_root, *options)
+    pub fn search_node(&self, tree_root: LE64, options: &NodeSearchOption) -> BtrfsNodeIter {
+        BtrfsNodeIter::new(self, tree_root, *options)
     }
 }
 
-struct BtrfsNodeIter<'a> {
+pub struct BtrfsNodeIter<'a> {
     fs: &'a FsInfo,
     root: LE64,
-    options: node_search_option,
+    options: NodeSearchOption,
     // how do we track progress - current leaf?
     // usually we are working through leaf items in a single node so we want
     // this to be fast, and it's ok if we have to do a slower operation to start
@@ -231,7 +231,7 @@ struct BtrfsNodeIter<'a> {
 }
 
 impl<'a> BtrfsNodeIter<'a> {
-    pub fn new(fs: &FsInfo, root: LE64, options: node_search_option) -> BtrfsNodeIter {
+    pub fn new(fs: &FsInfo, root: LE64, options: NodeSearchOption) -> BtrfsNodeIter {
         BtrfsNodeIter {
             fs,
             root,
@@ -246,7 +246,7 @@ impl<'a> Iterator for BtrfsNodeIter<'a> {
     type Item = (btrfs_item, &'a [u8]);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let None = self.cur_l0_block {
+        if self.cur_l0_block.is_none() {
             let header = load_virt::<btrfs_header>(self.fs, self.root).ok()?;
         }
 
@@ -317,7 +317,7 @@ impl<'a> Iterator for BtrfsNodeIter<'a> {
             }
 
         */
-        return None;
+        None
     }
 }
 
@@ -329,19 +329,15 @@ fn load_virt<T>(fs: &FsInfo, virt_offset: u64) -> Result<&T> {
         let length = chunk.1.length;
         if virt_offset >= start && virt_offset < start + length {
             let devid = chunk.1.stripe.devid;
-            let mut di = fs.devid_map.get(&devid);
-            if di.is_some() {
-                return Ok(di
-                    .unwrap()
+            if let Some(dev) = fs.devid_map.get(&devid) {
+                return Ok(dev
                     .file
                     .at::<T>((virt_offset - start + chunk.1.stripe.offset) as usize));
             }
             for stripe in &chunk.2 {
                 let devid = stripe.devid;
-                di = fs.devid_map.get(&devid);
-                if di.is_some() {
-                    return Ok(di
-                        .unwrap()
+                if let Some(dev) = fs.devid_map.get(&devid) {
+                    return Ok(dev
                         .file
                         .at::<T>((virt_offset - start + stripe.offset) as usize));
                 }
@@ -352,7 +348,7 @@ fn load_virt<T>(fs: &FsInfo, virt_offset: u64) -> Result<&T> {
     /* obtain leaf node structure + data slice */
     for leaf_item in fs.search_node(
         fs.master_sb.chunk_root,
-        &node_search_option {
+        &NodeSearchOption {
             min_object_id: BTRFS_FIRST_CHUNK_TREE_OBJECTID,
             max_object_id: BTRFS_FIRST_CHUNK_TREE_OBJECTID,
             min_item_type: BtrfsItemType::CHUNK_ITEM,
@@ -375,18 +371,16 @@ pub fn load_virt_block(fs: &FsInfo, virt_offset: u64, length: u64) -> Result<&[u
         let length = chunk.1.length;
         if virt_offset >= start && virt_offset < start + length {
             let devid = chunk.1.stripe.devid;
-            let mut di = fs.devid_map.get(&devid);
-            if di.is_some() {
-                return Ok(di.unwrap().file.slice(
+            if let Some(dev) = fs.devid_map.get(&devid) {
+                return Ok(dev.file.slice(
                     (virt_offset - start + chunk.1.stripe.offset) as usize,
                     length as usize,
                 ));
             }
             for stripe in &chunk.2 {
                 let devid = stripe.devid;
-                di = fs.devid_map.get(&devid);
-                if di.is_some() {
-                    return Ok(di.unwrap().file.slice(
+                if let Some(dev) = fs.devid_map.get(&devid) {
+                    return Ok(dev.file.slice(
                         (virt_offset - start + stripe.offset) as usize,
                         length as usize,
                     ));
@@ -398,7 +392,7 @@ pub fn load_virt_block(fs: &FsInfo, virt_offset: u64, length: u64) -> Result<&[u
     /* obtain leaf node structure + data slice */
     for leaf_item in fs.search_node(
         fs.master_sb.chunk_root,
-        &node_search_option {
+        &NodeSearchOption {
             min_object_id: BTRFS_FIRST_CHUNK_TREE_OBJECTID,
             max_object_id: BTRFS_FIRST_CHUNK_TREE_OBJECTID,
             min_item_type: BtrfsItemType::CHUNK_ITEM,
@@ -437,7 +431,7 @@ fn dump_tree(fs: &FsInfo, root: LE64) -> Result<()> {
     let bytenr = node_header.bytenr;
     assert_eq!(bytenr, root);
     //TODO: bother checking csum?
-    dump_node_header(&node_header);
+    dump_node_header(node_header);
     //TODO: dump nodes
     Ok(())
 }
@@ -452,7 +446,7 @@ pub fn dump(paths: &Vec<PathBuf>) -> Result<()> {
         println!("checking {}", path.display());
         let sb = load_sb(path)?;
         match fsid {
-            None => fsid = Some(sb.fsid.clone()),
+            None => fsid = Some(sb.fsid),
             Some(f) => assert_eq!(sb.fsid, f),
         };
         assert_eq!(sb.dev_item.fsid, fsid.unwrap());
@@ -466,12 +460,12 @@ pub fn dump(paths: &Vec<PathBuf>) -> Result<()> {
             path: path.clone(),
             file: MappedFile::open(path)?,
             devid: sb.dev_item.devid,
-            dev_uuid: sb.dev_item.uuid.clone(),
+            dev_uuid: sb.dev_item.uuid,
         });
-        devid_map.insert(di.devid.clone(), Rc::clone(&di));
-        devuuid_map.insert(di.dev_uuid.clone(), Rc::clone(&di));
+        devid_map.insert(di.devid, Rc::clone(&di));
+        devuuid_map.insert(di.dev_uuid, Rc::clone(&di));
         master_sb = Some(sb);
-        if initial_chunks.len() == 0 {
+        if initial_chunks.is_empty() {
             for ci in SysChunkIter::new(&sb) {
                 initial_chunks.push(ci);
             }
@@ -499,7 +493,7 @@ pub fn dump(paths: &Vec<PathBuf>) -> Result<()> {
     // There are two things we need to be able to do with these trees,
     // iterate through an entire tree (perhaps until a condition is met),
     // and identify a specific key (or part of a key) in a tree.
-    let ct_header = load_virt::<btrfs_header>(&fs, sb.chunk_root.try_into().unwrap())?;
+    let ct_header = load_virt::<btrfs_header>(&fs, sb.chunk_root)?;
     assert_eq!(ct_header.fsid, fs.fsid);
     let bn = ct_header.bytenr;
     let cr = fs.master_sb.chunk_root;
@@ -510,7 +504,7 @@ pub fn dump(paths: &Vec<PathBuf>) -> Result<()> {
     let ct_nri = ct_header.nritems;
     let ct_level = ct_header.level;
     assert_eq!(cto, BTRFS_CHUNK_TREE_OBJECTID);
-    dump_node_header(&ct_header);
+    dump_node_header(ct_header);
 
     // for levels != 0 we have internal nodes
     // https://btrfs.wiki.kernel.org/index.php/On-disk_Format#Internal_Node
@@ -545,7 +539,7 @@ pub fn dump(paths: &Vec<PathBuf>) -> Result<()> {
     )?
     .blockptr;
     let node = load_virt::<btrfs_header>(&fs, block_ptr)?;
-    dump_node_header(&node);
+    dump_node_header(node);
     let node_items_start = block_ptr + std::mem::size_of::<btrfs_header>() as u64;
     for i in 0..node.nritems {
         let leaf_node = load_virt::<btrfs_item>(
