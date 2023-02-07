@@ -28,7 +28,7 @@ pub enum BtrfsCsumType {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 #[allow(dead_code, non_camel_case_types)]
 pub enum BtrfsItemType {
     INODE_ITEM = 0x01,
@@ -216,7 +216,7 @@ pub struct btrfs_key_ptr {
 #[repr(C, packed)]
 pub struct btrfs_disk_key {
     pub objectid: LE64,
-    pub r#type: BtrfsItemType,
+    pub item_type: BtrfsItemType,
     pub offset: LE64,
 }
 
@@ -238,6 +238,4 @@ pub struct btrfs_chunk {
     pub sector_size: LE32,
     pub num_stripes: LE16,
     pub sub_stripes: LE16,
-    pub stripe: btrfs_stripe,
-    /* additional stripes go here */
 }

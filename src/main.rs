@@ -1,5 +1,7 @@
+mod address;
 mod btrfs;
 mod btrfs_node;
+mod dump;
 mod mapped_file;
 mod types;
 use clap::Parser;
