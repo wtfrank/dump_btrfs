@@ -31,6 +31,7 @@ pub enum BtrfsCsumType {
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 #[allow(dead_code, non_camel_case_types)]
 pub enum BtrfsItemType {
+    MIN = 0x00, //to facilitate searching through any possible byte value
     INODE_ITEM = 0x01,
     INODE_REF = 0x0c,
     INODE_EXTREF = 0x0d,
@@ -72,6 +73,7 @@ pub enum BtrfsItemType {
     UUID_KEY_SUBVOL = 0xfb,
     UUID_KEY_RECEIVED_SUBVOL = 0xfc,
     STRING_ITEM = 0xfd,
+    MAX = 0xff, //to facilitate searching through any possible byte value
 }
 
 //type LE64 = endian_types::Endian<u64, endian_types::LittleEndian>;

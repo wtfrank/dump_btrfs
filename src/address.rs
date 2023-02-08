@@ -3,6 +3,7 @@ use crate::tree::*;
 use crate::types::*;
 
 use anyhow::*;
+use log::debug;
 use more_asserts::*;
 
 struct ChunkStripeIter<'a> {
@@ -58,7 +59,7 @@ pub fn load_virt<T>(fs: &FsInfo, virt_offset: u64) -> Result<&T> {
 
 pub fn load_virt_block(fs: &FsInfo, virt_offset: u64) -> Result<&[u8]> {
     let node_length = fs.master_sb.nodesize as u64;
-    println!("load_virt_block: {virt_offset} length {node_length}");
+    debug!("load_virt_block: {virt_offset} length {node_length}");
     assert_eq!(virt_offset % node_length, 0);
     for chunk in &fs.bootstrap_chunks {
         let start = chunk.0.offset;
@@ -96,7 +97,7 @@ pub fn load_virt_block(fs: &FsInfo, virt_offset: u64) -> Result<&[u8]> {
         let owner = chunk.owner;
         let num_stripes = chunk.num_stripes;
         let start = leaf_item.0.key.offset;
-        println!(
+        debug!(
             "Found leaf chunk item: length: {}, owner: {}, num_stripes {}",
             length, owner, num_stripes
         );
@@ -117,7 +118,7 @@ pub fn load_virt_block(fs: &FsInfo, virt_offset: u64) -> Result<&[u8]> {
             let devid = stripe.devid;
             let offset = stripe.offset;
 
-            println!(
+            debug!(
                 "stripe devid {devid} offset {offset}, virt_offset {virt_offset}, start {start}"
             );
             if let Some(dev) = fs.devid_map.get(&devid) {

@@ -18,7 +18,9 @@ struct Params {
 }
 
 fn main() -> anyhow::Result<()> {
+    env_logger::init();
     let args = Params::parse();
+
     btrfs::dump(&args.paths)?;
 
     Ok(())

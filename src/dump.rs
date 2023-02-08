@@ -1,5 +1,6 @@
 use crate::address::*;
 use crate::btrfs::*;
+use crate::tree::*;
 use crate::types::*;
 
 use anyhow::*;
@@ -86,5 +87,16 @@ pub fn dump_tree(fs: &FsInfo, root: LE64) -> Result<()> {
     assert_eq!(node_header.csum, csum_data(node, fs.master_sb.csum_type));
     dump_node_header(node_header);
     //TODO: dump nodes
+    let search = NodeSearchOption {
+        min_object_id: 0,
+        max_object_id: u64::MAX,
+        min_item_type: BtrfsItemType::MIN,
+        max_item_type: BtrfsItemType::MAX,
+        min_offset: 0,
+        max_offset: u64::MAX,
+    };
+    for _leaf in BtrfsTreeIter::new(fs, root, search) {
+        println!("leaf");
+    }
     Ok(())
 }

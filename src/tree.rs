@@ -2,6 +2,8 @@ use crate::address::*;
 use crate::btrfs::*;
 use crate::btrfs_node::*;
 use crate::types::*;
+
+use log::debug;
 use std::cmp::Ordering;
 
 /// Functions/structures to search or iterate through a btrfs tree
@@ -53,7 +55,7 @@ impl<'a> BtrfsTreeIter<'a> {
     /// TODO this looks for leaf entry that exactly matches the min value of options,
     /// while the max value of options are ignored.
     pub fn new(fs: &FsInfo, root: LE64, options: NodeSearchOption) -> BtrfsTreeIter {
-        println!(
+        debug!(
             "new iterator: root {}, oid {}, type {:?}, offset {}",
             root, options.min_object_id, options.min_item_type, options.min_offset
         );
@@ -81,7 +83,7 @@ impl<'a> Iterator for BtrfsTreeIter<'a> {
             //btrfs nodes are very wide in order to reduce tree depth.
             while internal_node.header().level != 0 {
                 // if our key is to the left of all we skip (nothing in this node)
-                // if our key is between to go down
+                // if our key is between we go down
                 // if our key is to the right of all we also go down
                 //
                 // if we are only searching for a single item, this is easy
