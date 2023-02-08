@@ -1,4 +1,5 @@
 use crate::btrfs::*;
+use crate::tree::*;
 use crate::types::*;
 
 use anyhow::*;
@@ -107,9 +108,7 @@ pub fn load_virt<T>(fs: &FsInfo, virt_offset: u64) -> Result<&T> {
                 "stripe devid {devid} offset {offset}, virt_offset {virt_offset}, start {start}"
             );
             if let Some(dev) = fs.devid_map.get(&devid) {
-                return Ok(dev
-                    .file
-                    .at::<T>((virt_offset - start + offset) as usize));
+                return Ok(dev.file.at::<T>((virt_offset - start + offset) as usize));
             }
         }
     }

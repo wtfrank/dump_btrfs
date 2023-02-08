@@ -3,6 +3,7 @@ mod btrfs;
 mod btrfs_node;
 mod dump;
 mod mapped_file;
+mod tree;
 mod types;
 use clap::Parser;
 
