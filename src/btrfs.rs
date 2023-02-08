@@ -111,7 +111,7 @@ impl Iterator for SysChunkIter<'_> {
 }
 
 /* the checksums range from 4-32 bytes depending on the algorithm in use. For simplicity we'll always return a 32 byte buffer, but this could be improved upon */
-fn csum_data(buf: &[u8], csum_type: BtrfsCsumType) -> BtrfsCsum {
+pub fn csum_data(buf: &[u8], csum_type: BtrfsCsumType) -> BtrfsCsum {
     match csum_type {
         BtrfsCsumType::CRC32 => csum_data_crc32(buf),
         _ => panic!("only crc32 checksums are implemented - could be a small project for you?"),
@@ -276,11 +276,9 @@ pub fn dump(paths: &Vec<PathBuf>) -> Result<()> {
     dump_tree(&fs, fs.master_sb.root)?;
 
     //TODO: move print-related things into another module
-    //TODO: mem mapped access to virtual locations
     //TODO: load all superblocks on each device and check generation (for ssds)
     //TODO: unify load_virt and load_virt_block
     //TODO: do we need log tree?
-    //TODO: which trees (if any) do we keep in memory, and which do we read from disc on demand via MappedFile?
     //TODO: build root tree
     //TODO: load extent tree
     //TODO: command line argument to interpret a particular block and write it to a file
@@ -295,9 +293,9 @@ mod tests {
 
     #[test]
     fn crc32() {
-        let input:[u8;9] = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
+        let input: [u8; 9] = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
         //checksum is little-endian order
-        let expected:[u8;4] = [0xf9, 0xb9, 0x14, 0x5a];
+        let expected: [u8; 4] = [0xf9, 0xb9, 0x14, 0x5a];
         let result = csum_data_crc32(&input);
         println!("{result:x?}");
         assert_eq!(expected, result[0..4]);

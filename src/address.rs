@@ -3,6 +3,7 @@ use crate::tree::*;
 use crate::types::*;
 
 use anyhow::*;
+use more_asserts::*;
 
 struct ChunkStripeIter<'a> {
     index: usize,
@@ -44,22 +45,34 @@ impl<'a> Iterator for ChunkStripeIter<'a> {
 /// returns reference to the structure of a specified type at a particular virtual address
 /// first check bootstrap chunks from superblock, if not found search chunk tree
 pub fn load_virt<T>(fs: &FsInfo, virt_offset: u64) -> Result<&T> {
-    println!("load_virt: {virt_offset}");
-    // ChunkInfo is btrfs_disk_key, btrfs_chunk, stripes
+    let block_offset = virt_offset % fs.master_sb.nodesize as u64;
+    let block_start = virt_offset - block_offset;
+    assert_le!(
+        block_offset + std::mem::size_of::<T>() as u64,
+        fs.master_sb.nodesize as u64
+    );
+
+    let block = load_virt_block(fs, block_start)?;
+    Ok(unsafe { &*(block.as_ptr().add(block_offset as usize) as *const T) })
+}
+
+pub fn load_virt_block(fs: &FsInfo, virt_offset: u64) -> Result<&[u8]> {
+    let node_length = fs.master_sb.nodesize as u64;
+    println!("load_virt_block: {virt_offset} length {node_length}");
+    assert_eq!(virt_offset % node_length, 0);
     for chunk in &fs.bootstrap_chunks {
         let start = chunk.0.offset;
         let length = chunk.1.length;
-        //don't think we need to handle requesting an object that goes past a chunk boundary
         if virt_offset >= start && virt_offset < start + length {
             for stripe in &chunk.2 {
                 let devid = stripe.devid;
                 if let Some(dev) = fs.devid_map.get(&devid) {
-                    return Ok(dev
-                        .file
-                        .at::<T>((virt_offset - start + stripe.offset) as usize));
+                    return Ok(dev.file.slice(
+                        (virt_offset - start + stripe.offset) as usize,
+                        node_length as usize,
+                    ));
                 }
             }
-
             return Err(anyhow!("no device containing stripe copy is present"));
         }
     }
@@ -108,48 +121,12 @@ pub fn load_virt<T>(fs: &FsInfo, virt_offset: u64) -> Result<&T> {
                 "stripe devid {devid} offset {offset}, virt_offset {virt_offset}, start {start}"
             );
             if let Some(dev) = fs.devid_map.get(&devid) {
-                return Ok(dev.file.at::<T>((virt_offset - start + offset) as usize));
+                return Ok(dev.file.slice(
+                    (virt_offset - start + stripe.offset) as usize,
+                    node_length as usize,
+                ));
             }
         }
-    }
-
-    Err(anyhow!(
-        "virt address {virt_offset} not found among available chunks/devices"
-    ))
-}
-
-pub fn load_virt_block(fs: &FsInfo, virt_offset: u64, length: u64) -> Result<&[u8]> {
-    println!("load_virt_block: {virt_offset} length {length}");
-    for chunk in &fs.bootstrap_chunks {
-        let start = chunk.0.offset;
-        let length = chunk.1.length;
-        if virt_offset >= start && virt_offset < start + length {
-            for stripe in &chunk.2 {
-                let devid = stripe.devid;
-                if let Some(dev) = fs.devid_map.get(&devid) {
-                    return Ok(dev.file.slice(
-                        (virt_offset - start + stripe.offset) as usize,
-                        length as usize,
-                    ));
-                }
-            }
-            return Err(anyhow!("no device containing stripe copy is present"));
-        }
-    }
-
-    /* obtain leaf node structure + data slice */
-    for leaf_item in fs.search_node(
-        fs.master_sb.chunk_root,
-        &NodeSearchOption {
-            min_object_id: BTRFS_FIRST_CHUNK_TREE_OBJECTID,
-            max_object_id: BTRFS_FIRST_CHUNK_TREE_OBJECTID,
-            min_item_type: BtrfsItemType::CHUNK_ITEM,
-            max_item_type: BtrfsItemType::CHUNK_ITEM,
-            min_offset: virt_offset,
-            max_offset: virt_offset,
-        },
-    ) {
-        println!("Found leaf item");
     }
 
     Err(anyhow!(

@@ -82,7 +82,8 @@ pub fn dump_tree(fs: &FsInfo, root: LE64) -> Result<()> {
     assert_eq!(node_header.fsid, fs.fsid);
     let bytenr = node_header.bytenr;
     assert_eq!(bytenr, root);
-    //TODO: bother checking csum?
+    let node = &load_virt_block(fs, root)?[BTRFS_CSUM_SIZE..];
+    assert_eq!(node_header.csum, csum_data(node, fs.master_sb.csum_type));
     dump_node_header(node_header);
     //TODO: dump nodes
     Ok(())

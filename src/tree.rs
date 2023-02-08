@@ -75,9 +75,7 @@ impl<'a> Iterator for BtrfsTreeIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur_leaf_node.is_none() {
-            let mut internal_node = btrfs_internal_node(
-                load_virt_block(self.fs, self.root, self.fs.master_sb.nodesize as u64).ok()?,
-            );
+            let mut internal_node = btrfs_internal_node(load_virt_block(self.fs, self.root).ok()?);
             //let header = load_virt::<btrfs_header>(self.fs, self.root).ok()?;
             //TODO: binary search would be more efficient than iterating over every element in a node as
             //btrfs nodes are very wide in order to reduce tree depth.
@@ -102,37 +100,20 @@ impl<'a> Iterator for BtrfsTreeIter<'a> {
                         return None;
                     }
                     if cmp == Ordering::Equal {
-                        internal_node = btrfs_internal_node(
-                            load_virt_block(
-                                self.fs,
-                                lk.blockptr,
-                                self.fs.master_sb.nodesize as u64,
-                            )
-                            .ok()?,
-                        );
+                        internal_node =
+                            btrfs_internal_node(load_virt_block(self.fs, lk.blockptr).ok()?);
                         break;
                     }
                     match right_key {
                         None => {
-                            internal_node = btrfs_internal_node(
-                                load_virt_block(
-                                    self.fs,
-                                    lk.blockptr,
-                                    self.fs.master_sb.nodesize as u64,
-                                )
-                                .ok()?,
-                            );
+                            internal_node =
+                                btrfs_internal_node(load_virt_block(self.fs, lk.blockptr).ok()?);
                             break;
                         }
                         Some(rk) => {
                             if cmp_key_option(&rk.key, &self.options) == Ordering::Greater {
                                 internal_node = btrfs_internal_node(
-                                    load_virt_block(
-                                        self.fs,
-                                        lk.blockptr,
-                                        self.fs.master_sb.nodesize as u64,
-                                    )
-                                    .ok()?,
+                                    load_virt_block(self.fs, lk.blockptr).ok()?,
                                 );
                                 break;
                             }
@@ -146,12 +127,7 @@ impl<'a> Iterator for BtrfsTreeIter<'a> {
 
             //TODO: find leaf based on options
             self.cur_leaf_node = Some(btrfs_leaf_node(
-                load_virt_block(
-                    self.fs,
-                    internal_node.header().bytenr,
-                    self.fs.master_sb.nodesize as u64,
-                )
-                .ok()?,
+                load_virt_block(self.fs, internal_node.header().bytenr).ok()?,
             ));
             self.cur_leaf_index = 0;
         }
