@@ -122,9 +122,7 @@ fn csum_data_crc32(buf: &[u8]) -> [u8; BTRFS_CSUM_SIZE] {
     const CASTAGNOLI: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
     let mut ret = [0_u8; BTRFS_CSUM_SIZE];
     let cs = CASTAGNOLI.checksum(buf).to_le_bytes();
-    for i in 0..cs.len() {
-        ret[..cs.len()].copy_from_slice(&cs[..]);
-    }
+    ret[..cs.len()].copy_from_slice(&cs[..]);
     ret
 }
 
@@ -289,4 +287,19 @@ pub fn dump(paths: &Vec<PathBuf>) -> Result<()> {
     //TODO: command line argument to replace a particular block (in all stripes) from a file
     //      and update its checksum
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crc32() {
+        let input:[u8;9] = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
+        //checksum is little-endian order
+        let expected:[u8;4] = [0xf9, 0xb9, 0x14, 0x5a];
+        let result = csum_data_crc32(&input);
+        println!("{result:x?}");
+        assert_eq!(expected, result[0..4]);
+    }
 }
