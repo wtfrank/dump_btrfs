@@ -214,9 +214,9 @@ pub fn dump(paths: &Vec<PathBuf>) -> Result<()> {
     assert_eq!(bn, cr);
     //TODO: bother checking csum?
     let cto = ct_header.owner;
-    let ct_gen = ct_header.generation;
+    //let ct_gen = ct_header.generation;
     let ct_nri = ct_header.nritems;
-    let ct_level = ct_header.level;
+    //let ct_level = ct_header.level;
     assert_eq!(cto, BTRFS_CHUNK_TREE_OBJECTID);
     dump_node_header(ct_header);
 
