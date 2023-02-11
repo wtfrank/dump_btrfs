@@ -1,6 +1,6 @@
 use crate::btrfs::*;
-use crate::tree::*;
 use crate::structures::*;
+use crate::tree::*;
 
 use anyhow::*;
 use log::debug;

@@ -1,11 +1,6 @@
-mod address;
-mod btrfs;
-mod btrfs_node;
-mod dump;
-mod mapped_file;
-mod tree;
-mod structures;
 use clap::Parser;
+
+use btrfs_rs::btrfs;
 
 /// access internal structures in an unmounted btrfs filesystem
 ///

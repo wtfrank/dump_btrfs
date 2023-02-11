@@ -1,15 +1,14 @@
 use crate::address::*;
 use crate::dump::*;
 use crate::mapped_file::MappedFile;
-use crate::tree::*;
 use crate::structures::*;
+use crate::tree::*;
 use anyhow::*;
 use crc::{Crc, CRC_32_ISCSI};
+use log::*;
+use more_asserts::*;
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::Read;
-use std::io::Seek;
-use std::io::SeekFrom;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -31,35 +30,69 @@ use std::rc::Rc;
 /// sbread
 /// btrfs_check_super
 
-fn load_sb(path: &PathBuf) -> Result<btrfs_super_block> {
-    let mut f = File::open(path)?;
-    f.seek(SeekFrom::Start(BTRFS_SUPER_INFO_OFFSET.try_into()?))?;
-    union SbBuf {
-        buf: [u8; BTRFS_SUPER_INFO_SIZE],
-        block: btrfs_super_block,
+fn load_sb_at(mf: &MappedFile, offset: usize) -> Result<btrfs_super_block> {
+    let sb = mf.at::<btrfs_super_block>(offset);
+
+    if sb.magic != BTRFS_MAGIC {
+        return Err(anyhow!("invalid magic in block"));
     }
-
-    let mut sb: SbBuf = SbBuf {
-        buf: [0_u8; BTRFS_SUPER_INFO_SIZE],
-    };
-
-    let sb = unsafe {
-        f.read_exact(&mut sb.buf)?;
-        if sb.block.magic != BTRFS_MAGIC {
-            return Err(anyhow!("invalid magic in block"));
-        };
-        if csum_data(&sb.buf[BTRFS_CSUM_SIZE..], sb.block.csum_type) != sb.block.csum {
+    unsafe {
+        let ptr: *const btrfs_super_block = sb;
+        let ptr_u8 = ptr as *const u8;
+        let slice = std::slice::from_raw_parts(
+            ptr_u8.add(BTRFS_CSUM_SIZE),
+            BTRFS_SUPER_INFO_SIZE - BTRFS_CSUM_SIZE,
+        );
+        if csum_data(slice, sb.csum_type) != sb.csum {
             return Err(anyhow!("invalid checksum in superblock"));
         }
+    }
 
-        sb.block
-    };
+    if sb.total_bytes <= 0 {
+        return Err(anyhow!("zero length filesystem"));
+    }
 
-    //println!("sb loaded ok");
+    if sb.num_devices <= 0 {
+        return Err(anyhow!("no devices in filesystem"));
+    }
 
-    dump_chunks(&sb);
+    if sb.sectorsize <= 0 {
+        return Err(anyhow!("zero sector size"));
+    }
 
-    Ok(sb)
+    if sb.nodesize <= 0 {
+        return Err(anyhow!("zero node size"));
+    }
+
+    if sb.stripesize <= 0 {
+        return Err(anyhow!("zero stripe size"));
+    }
+
+    Ok(*sb)
+}
+
+/* read all superblocks in mapped file, then choose the one with the highest generation (as only one is updated at a time on ssds) */
+fn load_sb(mf: &MappedFile) -> Result<btrfs_super_block> {
+    assert_ge!(mf.len(), BTRFS_SUPER_INFO_OFFSET + BTRFS_SUPER_INFO_SIZE);
+    let mut master_sb = load_sb_at(mf, BTRFS_SUPER_INFO_OFFSET)?;
+
+    for mirror in 1..BTRFS_SUPER_MIRROR_MAX {
+        let next_sb_offset = 0x4000 << (BTRFS_SUPER_MIRROR_SHIFT * mirror);
+        debug!("reading superblock at {next_sb_offset}");
+        if mf.len() >= next_sb_offset + BTRFS_SUPER_INFO_SIZE {
+            let sb = load_sb_at(mf, next_sb_offset);
+            match sb {
+                Result::Err(e) => println!("superblock #{} invalid: {}", mirror + 1, e),
+                Result::Ok(s) => {
+                    if s.generation > master_sb.generation {
+                        master_sb = s;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(master_sb)
 }
 
 pub struct SysChunkIter<'a> {
@@ -158,7 +191,10 @@ pub fn dump(paths: &Vec<PathBuf>) -> Result<()> {
     let mut initial_chunks = Vec::new();
     for path in paths {
         println!("checking {}", path.display());
-        let sb = load_sb(path)?;
+        let mf = MappedFile::open(path)?;
+        let sb = load_sb(&mf)?;
+        dump_chunks(&sb);
+
         match fsid {
             None => fsid = Some(sb.fsid),
             Some(f) => assert_eq!(sb.fsid, f),
@@ -172,7 +208,7 @@ pub fn dump(paths: &Vec<PathBuf>) -> Result<()> {
 
         let di = Rc::new(DeviceInfo {
             path: path.clone(),
-            file: MappedFile::open(path)?,
+            file: mf,
             devid: sb.dev_item.devid,
             dev_uuid: sb.dev_item.uuid,
         });
@@ -276,8 +312,6 @@ pub fn dump(paths: &Vec<PathBuf>) -> Result<()> {
     dump_tree(&fs, fs.master_sb.root)?;
 
     //TODO: move print-related things into another module
-    //TODO: load all superblocks on each device and check generation (for ssds)
-    //TODO: unify load_virt and load_virt_block
     //TODO: do we need log tree?
     //TODO: build root tree
     //TODO: load extent tree

@@ -54,6 +54,10 @@ impl MappedFile {
         })
     }
 
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
     /// Returns a reference to T. T should be a primitive type or
     /// (probably) #[repr(C)]
     /// panics if the index is out of bounds.
