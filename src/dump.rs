@@ -4,6 +4,7 @@ use crate::structures::*;
 use crate::tree::*;
 
 use anyhow::*;
+use std::path::PathBuf;
 
 fn uuid_str(uuid: &BtrfsUuid) -> String {
     std::format!(
@@ -98,5 +99,98 @@ pub fn dump_tree(fs: &FsInfo, root: LE64) -> Result<()> {
     for _leaf in BtrfsTreeIter::new(fs, root, search) {
         println!("leaf");
     }
+    Ok(())
+}
+
+pub fn dump_fs(paths: &Vec<PathBuf>) -> Result<()> {
+    let fs = load_fs(paths)?;
+    let sb = fs.master_sb;
+    dump_sb(&sb);
+
+    dump_chunks(&sb);
+
+    for (devid, di) in fs.devid_map.iter() {
+        println!("devid {} is {}", devid, di.path.display());
+    }
+    let num_devices = sb.num_devices;
+    println!("{}/{} devices present", fs.devid_map.len(), num_devices);
+
+    // There are two things we need to be able to do with these trees,
+    // iterate through an entire tree (perhaps until a condition is met),
+    // and identify a specific key (or part of a key) in a tree.
+    let ct_header = load_virt::<btrfs_header>(&fs, sb.chunk_root)?;
+    assert_eq!(ct_header.fsid, fs.fsid);
+    let bn = ct_header.bytenr;
+    let cr = fs.master_sb.chunk_root;
+    assert_eq!(bn, cr);
+    //TODO: bother checking csum?
+    let cto = ct_header.owner;
+    //let ct_gen = ct_header.generation;
+    let ct_nri = ct_header.nritems;
+    //let ct_level = ct_header.level;
+    assert_eq!(cto, BTRFS_CHUNK_TREE_OBJECTID);
+    dump_node_header(ct_header);
+
+    // for levels != 0 we have internal nodes
+    // https://btrfs.wiki.kernel.org/index.php/On-disk_Format#Internal_Node
+
+    //the first level of the tree looks like this. After the header there is  random DEV_ITEM
+    //then a number of chunk_items. not clear what offset refers to.
+    //chunk tree header: uuid ab00c287-f8de-4fe1-b463-61cfc5c6814c, generation: 4756888, nritems: 76, level: 1
+    //object id: 1, node_type: DEV_ITEM, offset: 7, blockptr: 22093116751872, generation: 4756888
+    //object id: 256, node_type: CHUNK_ITEM, offset: 21264188047360, blockptr: 22093116882944, generation: 3409876
+    //...
+    let key_ptr_start: u64 = sb.chunk_root + std::mem::size_of::<btrfs_header>() as u64;
+    for i in 0..ct_nri {
+        let int_node = load_virt::<btrfs_key_ptr>(
+            &fs,
+            key_ptr_start + i as u64 * std::mem::size_of::<btrfs_key_ptr>() as u64,
+        )?;
+        let oid = int_node.key.objectid;
+        let node_type = int_node.key.item_type;
+        let offset = int_node.key.offset;
+        let blockptr = int_node.blockptr;
+        let generation = int_node.generation;
+        println!(
+            "object id: {}, node_type: {:?}, offset: {}, blockptr: {}, generation: {}",
+            oid, node_type, offset, blockptr, generation
+        );
+    }
+
+    //let's look at one chunk item.
+    let block_ptr = load_virt::<btrfs_key_ptr>(
+        &fs,
+        key_ptr_start + std::mem::size_of::<btrfs_key_ptr>() as u64,
+    )?
+    .blockptr;
+    let node = load_virt::<btrfs_header>(&fs, block_ptr)?;
+    dump_node_header(node);
+    let node_items_start = block_ptr + std::mem::size_of::<btrfs_header>() as u64;
+    for i in 0..node.nritems {
+        let leaf_node = load_virt::<btrfs_item>(
+            &fs,
+            node_items_start + i as u64 * std::mem::size_of::<btrfs_item>() as u64,
+        )?;
+        let oid = leaf_node.key.objectid;
+        let node_type = leaf_node.key.item_type;
+        let offset = leaf_node.key.offset;
+        let int_offset = leaf_node.offset;
+        let size = leaf_node.size;
+
+        println!(
+            "object id: {}, node_type: {:?}, offset: {}, itemoffset: {}, size: {}",
+            oid, node_type, offset, int_offset, size
+        );
+    }
+
+    println!("root tree");
+    dump_tree(&fs, fs.master_sb.root)?;
+
+    //TODO: do we need log tree?
+    //TODO: build root tree
+    //TODO: load extent tree
+    //TODO: command line argument to interpret a particular block and write it to a file
+    //TODO: command line argument to replace a particular block (in all stripes) from a file
+    //      and update its checksum
     Ok(())
 }

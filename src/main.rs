@@ -1,7 +1,5 @@
 use clap::Parser;
 
-use btrfs_rs::btrfs;
-
 /// access internal structures in an unmounted btrfs filesystem
 ///
 /// Each available block device in the filesystem should be specified on the command line.
@@ -16,7 +14,7 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
     let args = Params::parse();
 
-    btrfs::dump(&args.paths)?;
+    btrfs_rs::dump::dump_fs(&args.paths)?;
 
     Ok(())
 }
