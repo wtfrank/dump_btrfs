@@ -1,7 +1,7 @@
 use crate::address::*;
 use crate::btrfs::*;
 use crate::tree::*;
-use crate::types::*;
+use crate::structures::*;
 
 use anyhow::*;
 

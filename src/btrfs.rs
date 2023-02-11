@@ -2,7 +2,7 @@ use crate::address::*;
 use crate::dump::*;
 use crate::mapped_file::MappedFile;
 use crate::tree::*;
-use crate::types::*;
+use crate::structures::*;
 use anyhow::*;
 use crc::{Crc, CRC_32_ISCSI};
 use std::collections::HashMap;

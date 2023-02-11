@@ -1,7 +1,7 @@
 use crate::address::*;
 use crate::btrfs::*;
 use crate::btrfs_node::*;
-use crate::types::*;
+use crate::structures::*;
 
 use log::debug;
 use std::cmp::Ordering;

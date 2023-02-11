@@ -1,4 +1,4 @@
-use crate::types::*;
+use crate::structures::*;
 
 pub struct BtrfsLeafNodeIter<'a> {
     block: &'a [u8],
