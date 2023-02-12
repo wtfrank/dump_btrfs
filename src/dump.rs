@@ -79,6 +79,23 @@ pub fn dump_node_header(node_header: &btrfs_header) {
     );
 }
 
+pub fn fmt_treeid(treeid: u64) -> String {
+    match treeid {
+        BTRFS_ROOT_TREE_OBJECTID => String::from("ROOT_TREE"),
+        BTRFS_EXTENT_TREE_OBJECTID => String::from("EXTENT_TREE"),
+        BTRFS_CHUNK_TREE_OBJECTID => String::from("CHUNK_TREE"),
+        BTRFS_DEV_TREE_OBJECTID => String::from("DEV_TREE"),
+        BTRFS_FS_TREE_OBJECTID => String::from("FS_TREE"),
+        BTRFS_ROOT_TREE_DIR_OBJECTID => String::from("ROOT_TREE_DIR"),
+        BTRFS_CSUM_TREE_OBJECTID => String::from("CSUM_TREE"),
+        BTRFS_QUOTA_TREE_OBJECTID => String::from("QUOTA_TREE"),
+        BTRFS_UUID_TREE_OBJECTID => String::from("UUID_TREE"),
+        BTRFS_FREE_SPACE_TREE_OBJECTID => String::from("FREE_SPACE_TREE"),
+        BTRFS_BLOCK_GROUP_TREE_OBJECTID => String::from("BLOCK_GROUP_TREE"),
+        _ => format!("{treeid}"),
+    }
+}
+
 pub fn dump_tree(fs: &FsInfo, root: LE64) -> Result<()> {
     let node_header = load_virt::<btrfs_header>(fs, root)?;
     assert_eq!(node_header.fsid, fs.fsid);
@@ -102,8 +119,19 @@ pub fn dump_tree(fs: &FsInfo, root: LE64) -> Result<()> {
         min_match: std::cmp::Ordering::Less,
         max_match: std::cmp::Ordering::Greater,
     };
-    for _leaf in BtrfsTreeIter::new(fs, root, search) {
-        println!("leaf");
+    for (leaf, _data) in BtrfsTreeIter::new(fs, root, search) {
+        let btrfs_disk_key {
+            objectid,
+            item_type,
+            offset,
+        } = leaf.key;
+        let size = leaf.size;
+
+        println!(
+            "leaf {} {item_type:?} {offset} data size {}",
+            fmt_treeid(objectid),
+            size
+        );
     }
     Ok(())
 }

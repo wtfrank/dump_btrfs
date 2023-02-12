@@ -48,6 +48,14 @@ pub struct BtrfsInternalNodeIter<'a> {
     cur_item: u32,
 }
 
+impl<'a> BtrfsInternalNodeIter<'a> {
+    /// reinterpret this internal node as a leaf node
+    /// any iteration progress is reset.
+    pub fn as_leaf_node(&self) -> BtrfsLeafNodeIter<'a> {
+        btrfs_leaf_node(self.block)
+    }
+}
+
 /// iterator through btrfs nodes
 /// accepts a slice to a block, then returns an Iterator object
 /// with methods to return a reference to the block header,

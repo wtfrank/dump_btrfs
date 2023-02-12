@@ -3,8 +3,9 @@ use crate::btrfs::*;
 use crate::btrfs_node::*;
 use crate::structures::*;
 
-use log::debug;
+use log::{debug, trace};
 use std::cmp::Ordering;
+use std::iter::Peekable;
 
 /// Functions/structures to search or iterate through a btrfs tree
 
@@ -12,13 +13,6 @@ use std::cmp::Ordering;
 pub struct NodeSearchOption {
     pub min_key: btrfs_disk_key,
     pub max_key: btrfs_disk_key,
-    /*
-    pub min_object_id: LE64,
-    pub max_object_id: LE64,
-    pub min_item_type: BtrfsItemType,
-    pub max_item_type: BtrfsItemType,
-    pub min_offset: LE64,
-    pub max_offset: LE64,*/
     // where there is no node exactly matching the key, if Ordering is Less, then the last node to the left
     // of the search key will match. If Ordering is Greater, than the first node to the right of the search
     // key will match.
@@ -27,10 +21,7 @@ pub struct NodeSearchOption {
     pub max_match: Ordering,
 }
 
-/// TODO a simplified comparison which just checks for matches against min and ignores max
-/// Separating the search into finding start node, then deciding whether or not to iterate to the
-/// following node may change what's needed from this function.
-fn cmp_key_option(left: &btrfs_disk_key, right: &btrfs_disk_key) -> Ordering {
+fn cmp_key(left: &btrfs_disk_key, right: &btrfs_disk_key) -> Ordering {
     if left.objectid < right.objectid {
         Ordering::Less
     } else if left.objectid > right.objectid {
@@ -57,7 +48,7 @@ pub struct BtrfsTreeIter<'a> {
     // this to be fast, and it's ok if we have to do a slower operation to start
     // a new node. if we have to look up chunk addresses every next() it will be a bit
     // slow so we should save a reference to an entire block.
-    cur_leaf_node: Option<BtrfsLeafNodeIter<'a>>,
+    cur_leaf_node: Option<Peekable<BtrfsLeafNodeIter<'a>>>,
     cur_leaf_index: usize,
     internal_node_stack: Vec<BtrfsInternalNodeIter<'a>>,
 }
@@ -69,6 +60,10 @@ impl<'a> BtrfsTreeIter<'a> {
         let objectid = options.min_key.objectid;
         let item_type = options.min_key.item_type;
         let offset = options.min_key.offset;
+        assert_ne!(
+            cmp_key(&options.min_key, &options.max_key),
+            Ordering::Greater
+        );
         debug!(
             "new iterator: root {}, oid {}, type {:?}, offset {}",
             root, objectid, item_type, offset
@@ -109,34 +104,58 @@ impl<'a> BtrfsTreeIter<'a> {
                 right_key = internal_node.next();
 
                 let lk = left_key.unwrap();
-                let cmp = cmp_key_option(&lk.key, &self.options.min_key);
+                let btrfs_disk_key {
+                    objectid: lk_oid,
+                    item_type: lk_type,
+                    offset: lk_offset,
+                } = lk.key;
+                trace!(
+                    "Evaluating internal node key {} {:?} {}",
+                    lk_oid,
+                    lk_type,
+                    lk_offset
+                );
 
-                if cmp == Ordering::Greater {
-                    debug!("no match in internal node");
-                    return None;
-                }
-                if cmp == Ordering::Equal {
-                    node_stack.push(internal_node);
-                    internal_block = load_virt_block(self.fs, lk.blockptr).ok()?;
-                    internal_node = btrfs_internal_node(internal_block);
-                    break;
-                }
-                match right_key {
-                    None => {
-                        node_stack.push(internal_node);
-                        internal_block = load_virt_block(self.fs, lk.blockptr).ok()?;
-                        internal_node = btrfs_internal_node(internal_block);
-                        break;
-                    }
-                    Some(rk) => {
-                        if cmp_key_option(&rk.key, &self.options.min_key) == Ordering::Greater {
+                let cmp_min = cmp_key(&lk.key, &self.options.min_key);
+                let cmp_max = cmp_key(&lk.key, &self.options.max_key);
+
+                match cmp_min {
+                    Ordering::Greater => match cmp_max {
+                        Ordering::Greater => {
+                            debug!("internal node is greater than search range");
+                            return None;
+                        }
+                        _ => {
                             node_stack.push(internal_node);
                             internal_block = load_virt_block(self.fs, lk.blockptr).ok()?;
                             internal_node = btrfs_internal_node(internal_block);
                             break;
                         }
-                        //otherwise we try the next key in the node
+                    },
+                    Ordering::Equal => {
+                        node_stack.push(internal_node);
+                        internal_block = load_virt_block(self.fs, lk.blockptr).ok()?;
+                        internal_node = btrfs_internal_node(internal_block);
+                        break;
                     }
+                    Ordering::Less => match right_key {
+                        None => {
+                            //if there is no key to the right then our key could be within the child nodes
+                            node_stack.push(internal_node);
+                            internal_block = load_virt_block(self.fs, lk.blockptr).ok()?;
+                            internal_node = btrfs_internal_node(internal_block);
+                            break;
+                        }
+                        Some(rk) => {
+                            if cmp_key(&rk.key, &self.options.min_key) == Ordering::Greater {
+                                node_stack.push(internal_node);
+                                internal_block = load_virt_block(self.fs, lk.blockptr).ok()?;
+                                internal_node = btrfs_internal_node(internal_block);
+                                break;
+                            }
+                            //otherwise we try the next key in the node
+                        }
+                    },
                 }
             }
         }
@@ -144,8 +163,8 @@ impl<'a> BtrfsTreeIter<'a> {
         //we now have reached the leaf (TODO: a leaf in the range)
 
         debug!("reached leaf node with path length {}", node_stack.len());
-        let leaf_node =
-            btrfs_leaf_node(load_virt_block(self.fs, internal_node.header().bytenr).ok()?);
+        let leaf_node = internal_node.as_leaf_node();
+        //            btrfs_leaf_node(load_virt_block(self.fs, internal_node.header().bytenr).ok()?);
         //TODO: find leaf based on options
         Some((node_stack, leaf_node))
     }
@@ -167,38 +186,44 @@ impl<'a> Iterator for BtrfsTreeIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur_leaf_node.is_none() {
             let (path, leaf_node) = self.find_key()?;
-            self.cur_leaf_node = Some(leaf_node);
+            self.cur_leaf_node = Some(leaf_node.peekable());
             self.cur_leaf_index = 0;
             self.internal_node_stack = path;
         }
 
         if let Some(ln) = self.cur_leaf_node.as_mut() {
             let mut left_leaf;
-            let mut right_leaf = ln.next();
-            while right_leaf.is_some() {
-                left_leaf = right_leaf;
-                right_leaf = ln.next();
+            let mut right_leaf;
+            loop {
+                left_leaf = ln.next();
+                if left_leaf.is_none() {
+                    break;
+                }
+                right_leaf = ln.peek();
                 let ll = left_leaf.unwrap();
-                let ordering = cmp_key_option(&ll.0.key, &self.options.min_key);
-                if ordering == Ordering::Greater {
-                    return None;
-                }
-                if ordering == Ordering::Equal {
-                    return Some(ll);
-                }
-                match right_leaf {
-                    None => {
-                        return Some(ll);
-                    }
-                    Some(rl) => {
-                        if cmp_key_option(&rl.0.key, &self.options.min_key) == Ordering::Greater {
+                let cmp_min = cmp_key(&ll.0.key, &self.options.min_key);
+                let cmp_max = cmp_key(&ll.0.key, &self.options.max_key);
+                match cmp_min {
+                    Ordering::Greater => match cmp_max {
+                        Ordering::Greater => return None,
+                        _ => return Some(ll),
+                    },
+                    Ordering::Equal => return Some(ll),
+                    _ => match right_leaf {
+                        None => {
                             return Some(ll);
                         }
-                    }
+                        Some(rl) => {
+                            if cmp_key(&rl.0.key, &self.options.min_key) == Ordering::Greater {
+                                return Some(ll);
+                            }
+                        }
+                    },
                 }
             }
         }
 
+        //TODO: go up to parent internal node and continue
         None
     }
 }
