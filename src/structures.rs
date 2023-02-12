@@ -219,6 +219,7 @@ pub struct btrfs_key_ptr {
 }
 
 #[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub struct btrfs_disk_key {
     pub objectid: LE64,
     pub item_type: BtrfsItemType,

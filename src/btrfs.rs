@@ -85,7 +85,7 @@ fn load_sb(mf: &MappedFile) -> Result<btrfs_super_block> {
                     if s.generation > master_sb.generation {
                         let sg = s.generation;
                         let msg = master_sb.generation;
-                        debug!("sb #{} had higher generation {} vs {}", mirror+1, sg, msg);
+                        debug!("sb #{} had higher generation {} vs {}", mirror + 1, sg, msg);
                         master_sb = s;
                     }
                 }
@@ -184,7 +184,7 @@ impl FsInfo {
     }
 }
 
-pub fn load_fs( paths: &Vec<PathBuf>) -> Result<FsInfo> {
+pub fn load_fs(paths: &Vec<PathBuf>) -> Result<FsInfo> {
     let mut fsid = None;
     let mut devid_map = HashMap::<LE64, Rc<DeviceInfo>>::new();
     let mut devuuid_map = HashMap::<BtrfsUuid, Rc<DeviceInfo>>::new();
@@ -232,7 +232,6 @@ pub fn load_fs( paths: &Vec<PathBuf>) -> Result<FsInfo> {
         bootstrap_chunks: initial_chunks,
     })
 }
-
 
 #[cfg(test)]
 mod tests {

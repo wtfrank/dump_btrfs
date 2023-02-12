@@ -89,12 +89,18 @@ pub fn dump_tree(fs: &FsInfo, root: LE64) -> Result<()> {
     dump_node_header(node_header);
     //TODO: dump nodes
     let search = NodeSearchOption {
-        min_object_id: 0,
-        max_object_id: u64::MAX,
-        min_item_type: BtrfsItemType::MIN,
-        max_item_type: BtrfsItemType::MAX,
-        min_offset: 0,
-        max_offset: u64::MAX,
+        min_key: btrfs_disk_key {
+            objectid: 0,
+            item_type: BtrfsItemType::MIN,
+            offset: 0,
+        },
+        max_key: btrfs_disk_key {
+            objectid: u64::MAX,
+            item_type: BtrfsItemType::MAX,
+            offset: u64::MAX,
+        },
+        min_match: std::cmp::Ordering::Less,
+        max_match: std::cmp::Ordering::Greater,
     };
     for _leaf in BtrfsTreeIter::new(fs, root, search) {
         println!("leaf");

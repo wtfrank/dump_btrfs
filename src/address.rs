@@ -82,12 +82,18 @@ pub fn load_virt_block(fs: &FsInfo, virt_offset: u64) -> Result<&[u8]> {
     for leaf_item in fs.search_node(
         fs.master_sb.chunk_root,
         &NodeSearchOption {
-            min_object_id: BTRFS_FIRST_CHUNK_TREE_OBJECTID,
-            max_object_id: BTRFS_FIRST_CHUNK_TREE_OBJECTID,
-            min_item_type: BtrfsItemType::CHUNK_ITEM,
-            max_item_type: BtrfsItemType::CHUNK_ITEM,
-            min_offset: virt_offset,
-            max_offset: virt_offset,
+            min_key: btrfs_disk_key {
+                objectid: BTRFS_FIRST_CHUNK_TREE_OBJECTID,
+                item_type: BtrfsItemType::CHUNK_ITEM,
+                offset: virt_offset,
+            },
+            max_key: btrfs_disk_key {
+                objectid: BTRFS_FIRST_CHUNK_TREE_OBJECTID,
+                item_type: BtrfsItemType::CHUNK_ITEM,
+                offset: virt_offset,
+            },
+            min_match: std::cmp::Ordering::Equal,
+            max_match: std::cmp::Ordering::Equal,
         },
     ) {
         let size = leaf_item.0.size;
