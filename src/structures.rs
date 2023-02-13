@@ -341,4 +341,5 @@ pub struct btrfs_root_ref {
     pub dirid: LE64,
     pub sequence: LE64,
     pub name_len: LE16,
+    /* the name follows here */
 }
