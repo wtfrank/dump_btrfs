@@ -25,6 +25,18 @@ pub const BTRFS_UUID_TREE_OBJECTID: u64 = 9;
 pub const BTRFS_FREE_SPACE_TREE_OBJECTID: u64 = 10;
 pub const BTRFS_BLOCK_GROUP_TREE_OBJECTID: u64 = 11;
 
+pub const BTRFS_DEV_STATS_OBJECTID: u64 = 0;
+pub const BTRFS_BALANCE_OBJECTID: u64 = -4_i64 as u64;
+pub const BTRFS_ORPHAN_OBJECTID: u64 = -5_i64 as u64;
+pub const BTRFS_TREE_LOG_OBJECTID: u64 = -6_i64 as u64;
+pub const BTRFS_TREE_LOG_FIXUP_OBJECTID: u64 = -7_i64 as u64;
+pub const BTRFS_TREE_RELOC_OBJECTID: u64 = -8_i64 as u64;
+pub const BTRFS_DATA_RELOC_TREE_OBJECTID: u64 = -9_i64 as u64;
+pub const BTRFS_EXTENT_CSUM_OBJECTID: u64 = -10_i64 as u64;
+pub const BTRFS_FREE_SPACE_OBJECTID: u64 = -11_i64 as u64;
+pub const BTRFS_FREE_INO_OBJECTID: u64 = -12_i64 as u64;
+pub const BTRFS_MULTIPLE_OBJECTIDS: u64 = -255_i64 as u64;
+
 pub const BTRFS_FIRST_CHUNK_TREE_OBJECTID: u64 = 256;
 
 /*
@@ -236,6 +248,15 @@ pub struct btrfs_disk_key {
     pub offset: LE64,
 }
 
+impl std::fmt::Debug for btrfs_disk_key {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let objectid = self.objectid;
+        let item_type = self.item_type;
+        let offset = self.offset;
+        write!(f, "{:?} {:?} {:?}", objectid, item_type, offset)
+    }
+}
+
 #[repr(C, packed)]
 pub struct btrfs_stripe {
     pub devid: LE64,
@@ -254,4 +275,70 @@ pub struct btrfs_chunk {
     pub sector_size: LE32,
     pub num_stripes: LE16,
     pub sub_stripes: LE16,
+}
+
+#[repr(C, packed)]
+pub struct btrfs_timespec {
+    pub sec: LE64,
+    pub nsec: LE32,
+}
+
+#[repr(C, packed)]
+pub struct btrfs_inode_item {
+    pub generation: LE64,
+    pub transid: LE64,
+    pub size: LE64,
+    pub nbytes: LE64,
+    pub block_group: LE64,
+    pub nlink: LE32,
+    pub uid: LE32,
+    pub gid: LE32,
+    pub mode: LE32,
+    pub rdev: LE64,
+    pub flags: LE64,
+
+    pub sequence: LE64,
+    pub __reserved: [LE64; 4],
+    pub atime: btrfs_timespec,
+    pub ctime: btrfs_timespec,
+    pub mtime: btrfs_timespec,
+    pub otime: btrfs_timespec,
+}
+
+/* there was an older version of this structure which I'm ignoring */
+#[repr(C, packed)]
+pub struct btrfs_root_item {
+    pub inode: btrfs_inode_item,
+    pub generation: LE64,
+    pub root_dirid: LE64,
+    pub bytenr: LE64,
+    pub byte_limit: LE64,
+    pub bytes_used: LE64,
+    pub last_snapshot: LE64,
+    pub flags: LE64,
+    pub refs: LE32,
+    pub drop_progress: btrfs_disk_key,
+    pub drop_level: u8,
+    pub level: u8,
+    pub generation_v2: LE64,
+    pub uuid: BtrfsUuid,
+    pub parent_uuid: BtrfsUuid,
+    pub received_uuid: BtrfsUuid,
+    pub ctransid: LE64,
+    pub otransid: LE64,
+    pub stransid: LE64,
+    pub rtransid: LE64,
+    pub ctime: btrfs_timespec,
+    pub otime: btrfs_timespec,
+    pub stime: btrfs_timespec,
+    pub rtime: btrfs_timespec,
+    pub global_tree_id: LE64,
+    pub __reserved: [LE64; 7],
+}
+
+#[repr(C, packed)]
+pub struct btrfs_root_ref {
+    pub dirid: LE64,
+    pub sequence: LE64,
+    pub name_len: LE16,
 }

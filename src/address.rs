@@ -104,8 +104,8 @@ pub fn load_virt_block(fs: &FsInfo, virt_offset: u64) -> Result<&[u8]> {
         let num_stripes = chunk.num_stripes;
         let start = leaf_item.0.key.offset;
         debug!(
-            "Found leaf chunk item: length: {}, owner: {}, num_stripes {}",
-            length, owner, num_stripes
+            "Found leaf chunk item: key: {:?} length: {}, owner: {}, num_stripes {}",
+            leaf_item.0.key, length, owner, num_stripes
         );
         assert_eq!(
             size as usize,

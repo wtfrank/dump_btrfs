@@ -5,7 +5,6 @@ use crate::structures::*;
 
 use log::{debug, trace};
 use std::cmp::Ordering;
-use std::iter::Peekable;
 
 /// Functions/structures to search or iterate through a btrfs tree
 
@@ -48,14 +47,12 @@ pub struct BtrfsTreeIter<'a> {
     // this to be fast, and it's ok if we have to do a slower operation to start
     // a new node. if we have to look up chunk addresses every next() it will be a bit
     // slow so we should save a reference to an entire block.
-    cur_leaf_node: Option<Peekable<BtrfsLeafNodeIter<'a>>>,
+    cur_leaf_node: Option<BtrfsLeafNodeIter<'a>>,
     cur_leaf_index: usize,
     internal_node_stack: Vec<BtrfsInternalNodeIter<'a>>,
 }
 
 impl<'a> BtrfsTreeIter<'a> {
-    /// TODO this looks for leaf entry that exactly matches the min value of options,
-    /// while the max value of options are ignored.
     pub fn new(fs: &FsInfo, root: LE64, options: NodeSearchOption) -> BtrfsTreeIter {
         let objectid = options.min_key.objectid;
         let item_type = options.min_key.item_type;
@@ -95,13 +92,14 @@ impl<'a> BtrfsTreeIter<'a> {
             // if our key is to the right of all we also go down
             //
             // if we are only searching for a single item, this is easy
-            // TODO: search for a range which probably means we need to store a
-            // stack of node iterators that we're working through.
             let mut left_key;
-            let mut right_key = internal_node.next();
-            while right_key.is_some() {
-                left_key = right_key;
-                right_key = internal_node.next();
+            let mut right_key;
+            loop {
+                left_key = internal_node.next();
+                if left_key.is_none() {
+                    break;
+                }
+                right_key = internal_node.peek();
 
                 let lk = left_key.unwrap();
                 let btrfs_disk_key {
@@ -109,15 +107,17 @@ impl<'a> BtrfsTreeIter<'a> {
                     item_type: lk_type,
                     offset: lk_offset,
                 } = lk.key;
-                trace!(
-                    "Evaluating internal node key {} {:?} {}",
-                    lk_oid,
-                    lk_type,
-                    lk_offset
-                );
-
                 let cmp_min = cmp_key(&lk.key, &self.options.min_key);
                 let cmp_max = cmp_key(&lk.key, &self.options.max_key);
+
+                trace!(
+                    "Evaluating internal node key {} {:?} {}. min_key {:?}, max_key {:?}",
+                    lk_oid,
+                    lk_type,
+                    lk_offset,
+                    cmp_min,
+                    cmp_max,
+                );
 
                 match cmp_min {
                     Ordering::Greater => match cmp_max {
@@ -140,6 +140,7 @@ impl<'a> BtrfsTreeIter<'a> {
                     }
                     Ordering::Less => match right_key {
                         None => {
+                            trace!("right key is None");
                             //if there is no key to the right then our key could be within the child nodes
                             node_stack.push(internal_node);
                             internal_block = load_virt_block(self.fs, lk.blockptr).ok()?;
@@ -147,7 +148,13 @@ impl<'a> BtrfsTreeIter<'a> {
                             break;
                         }
                         Some(rk) => {
-                            if cmp_key(&rk.key, &self.options.min_key) == Ordering::Greater {
+                            let cmp_rk = cmp_key(&rk.key, &self.options.min_key);
+                            trace!(
+                                "right {:?} is {cmp_rk:?} min_key {:?}",
+                                rk.key,
+                                self.options.min_key
+                            );
+                            if cmp_rk == Ordering::Greater {
                                 node_stack.push(internal_node);
                                 internal_block = load_virt_block(self.fs, lk.blockptr).ok()?;
                                 internal_node = btrfs_internal_node(internal_block);
@@ -160,20 +167,13 @@ impl<'a> BtrfsTreeIter<'a> {
             }
         }
 
-        //we now have reached the leaf (TODO: a leaf in the range)
-
         debug!("reached leaf node with path length {}", node_stack.len());
         let leaf_node = internal_node.as_leaf_node();
-        //            btrfs_leaf_node(load_virt_block(self.fs, internal_node.header().bytenr).ok()?);
-        //TODO: find leaf based on options
         Some((node_stack, leaf_node))
     }
 }
 
-/* TODO: need to split up the search:
- * 1) find key, either exact match, last before or first after
- * 2) given key + node_stack + index, find next key
- *
+/*
  * use cases:
  * - I want to find the leaf matching this exact key
  * - I want to find the leaf containing the range that contains the offset in this key
@@ -186,7 +186,7 @@ impl<'a> Iterator for BtrfsTreeIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur_leaf_node.is_none() {
             let (path, leaf_node) = self.find_key()?;
-            self.cur_leaf_node = Some(leaf_node.peekable());
+            self.cur_leaf_node = Some(leaf_node);
             self.cur_leaf_index = 0;
             self.internal_node_stack = path;
         }
@@ -200,9 +200,20 @@ impl<'a> Iterator for BtrfsTreeIter<'a> {
                     break;
                 }
                 right_leaf = ln.peek();
+                if right_leaf.is_none() {
+                    //FIXME: we need to peek back up the tree and find the first leaf entry in the
+                    //next leaf node so we can properly evaluate whether our search key lies between keys.
+                }
+
                 let ll = left_leaf.unwrap();
                 let cmp_min = cmp_key(&ll.0.key, &self.options.min_key);
                 let cmp_max = cmp_key(&ll.0.key, &self.options.max_key);
+                trace!(
+                    "ll {:?} cmp_min: {:?} cmp_max: {:?}",
+                    ll.0.key,
+                    cmp_min,
+                    cmp_max
+                );
                 match cmp_min {
                     Ordering::Greater => match cmp_max {
                         Ordering::Greater => return None,
@@ -211,10 +222,18 @@ impl<'a> Iterator for BtrfsTreeIter<'a> {
                     Ordering::Equal => return Some(ll),
                     _ => match right_leaf {
                         None => {
+                            trace!("right leaf was None");
                             return Some(ll);
                         }
                         Some(rl) => {
-                            if cmp_key(&rl.0.key, &self.options.min_key) == Ordering::Greater {
+                            let cmp_rk = cmp_key(&rl.0.key, &self.options.min_key);
+                            trace!(
+                                "rk {:?} was {:?} min_key {:?}",
+                                rl.0.key,
+                                cmp_rk,
+                                self.options.min_key
+                            );
+                            if cmp_rk == Ordering::Greater {
                                 return Some(ll);
                             }
                         }
@@ -222,8 +241,35 @@ impl<'a> Iterator for BtrfsTreeIter<'a> {
                 }
             }
         }
+        debug!("reached end of leaf nodes - opening parent node");
+        //go up to parent internal node and continue
+        //this is pretty easy because we're after the left-most leaf_node
+        let mut subtree_start = None;
+        while !self.internal_node_stack.is_empty() {
+            let parent_internal = self.internal_node_stack.pop()?;
+            let next_child = parent_internal.peek();
+            if next_child.is_none() {
+                continue; //try the parent's parent if it exists
+            }
+            subtree_start = Some(parent_internal);
+        }
+        if subtree_start.is_none() {
+            debug!("reached end of leaf nodes - no parent nodes available");
+            return None;
+        }
 
-        //TODO: go up to parent internal node and continue
-        None
+        //we now descend the subtree, pushing each node onto the stack
+        //(probably pushing back the node we just popped off, with iterator incremented)
+        let mut internal_node = subtree_start.unwrap();
+        while internal_node.header().level != 0 {
+            let child = internal_node.next()?; //every internal node has at least 1 entry
+            self.internal_node_stack.push(internal_node);
+            internal_node = btrfs_internal_node(load_virt_block(self.fs, child.blockptr).ok()?);
+        }
+        let leaf_node = internal_node.as_leaf_node();
+        self.cur_leaf_node = Some(leaf_node);
+        self.cur_leaf_index = 0;
+        //we recurse to continue iterating from the leaf node we just set up
+        self.next()
     }
 }

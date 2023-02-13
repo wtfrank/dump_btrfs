@@ -4,6 +4,7 @@ use crate::structures::*;
 use crate::tree::*;
 
 use anyhow::*;
+use more_asserts::*;
 use std::path::PathBuf;
 
 fn uuid_str(uuid: &BtrfsUuid) -> String {
@@ -92,6 +93,18 @@ pub fn fmt_treeid(treeid: u64) -> String {
         BTRFS_UUID_TREE_OBJECTID => String::from("UUID_TREE"),
         BTRFS_FREE_SPACE_TREE_OBJECTID => String::from("FREE_SPACE_TREE"),
         BTRFS_BLOCK_GROUP_TREE_OBJECTID => String::from("BLOCK_GROUP_TREE"),
+        BTRFS_DEV_STATS_OBJECTID => String::from("DEV_STATS"),
+        BTRFS_BALANCE_OBJECTID => String::from("BALANCE"),
+        BTRFS_ORPHAN_OBJECTID => String::from("ORPHAN"),
+        BTRFS_TREE_LOG_OBJECTID => String::from("TREE_LOG"),
+        BTRFS_TREE_LOG_FIXUP_OBJECTID => String::from("TREE_LOG_FIXUP"),
+        BTRFS_TREE_RELOC_OBJECTID => String::from("TREE_RELOC"),
+        BTRFS_DATA_RELOC_TREE_OBJECTID => String::from("DATA_RELOC_TREE"),
+        BTRFS_EXTENT_CSUM_OBJECTID => String::from("EXTENT_CSUM"),
+        BTRFS_FREE_SPACE_OBJECTID => String::from("FREE_SPACE"),
+        BTRFS_FREE_INO_OBJECTID => String::from("FREE_INO"),
+        BTRFS_MULTIPLE_OBJECTIDS => String::from("MULTIPLE_OBJECTIDS"),
+
         _ => format!("{treeid}"),
     }
 }
@@ -132,6 +145,71 @@ pub fn dump_tree(fs: &FsInfo, root: LE64) -> Result<()> {
             fmt_treeid(objectid),
             size
         );
+    }
+    Ok(())
+}
+
+pub fn dump_root_tree(fs: &FsInfo) -> Result<()> {
+    let root = fs.master_sb.root;
+    let node_header = load_virt::<btrfs_header>(fs, root)?;
+    assert_eq!(node_header.fsid, fs.fsid);
+    let bytenr = node_header.bytenr;
+    assert_eq!(bytenr, root);
+    let node = &load_virt_block(fs, root)?[BTRFS_CSUM_SIZE..];
+    assert_eq!(node_header.csum, csum_data(node, fs.master_sb.csum_type));
+    dump_node_header(node_header);
+    //TODO: dump nodes
+    let search = NodeSearchOption {
+        min_key: btrfs_disk_key {
+            objectid: 0,
+            item_type: BtrfsItemType::MIN,
+            offset: 0,
+        },
+        max_key: btrfs_disk_key {
+            objectid: u64::MAX,
+            item_type: BtrfsItemType::MAX,
+            offset: u64::MAX,
+        },
+        min_match: std::cmp::Ordering::Less,
+        max_match: std::cmp::Ordering::Greater,
+    };
+    for (leaf, data) in BtrfsTreeIter::new(fs, root, search) {
+        let btrfs_disk_key {
+            objectid,
+            item_type,
+            offset,
+        } = leaf.key;
+        let size = leaf.size;
+
+        match item_type {
+            BtrfsItemType::ROOT_ITEM => {
+                assert_eq!(size as usize, std::mem::size_of::<btrfs_root_item>());
+                let root_item = unsafe { &*((data.as_ptr()) as *const btrfs_root_item) };
+                let tree_root = root_item.bytenr;
+                println!(
+                    "leaf {} {item_type:?} {offset} data size {} tree root {tree_root}",
+                    fmt_treeid(objectid),
+                    size
+                );
+            }
+            BtrfsItemType::ROOT_REF => {
+                assert_ge!(size as usize, std::mem::size_of::<btrfs_root_ref>());
+
+                let root_ref = unsafe { &*((data.as_ptr()) as *const btrfs_root_ref) };
+                let name_len = root_ref.name_len;
+                let dirid = root_ref.dirid;
+                assert_eq!(
+                    size as usize,
+                    name_len as usize + std::mem::size_of::<btrfs_root_ref>()
+                );
+                println!(
+                    "root ref {} {item_type:?} {offset} dirid {dirid} name: {}",
+                    fmt_treeid(objectid),
+                    std::str::from_utf8(&data[std::mem::size_of::<btrfs_root_ref>()..])?
+                );
+            }
+            _ => {}
+        }
     }
     Ok(())
 }
@@ -218,13 +296,16 @@ pub fn dump_fs(paths: &Vec<PathBuf>) -> Result<()> {
     }
 
     println!("root tree");
-    dump_tree(&fs, fs.master_sb.root)?;
+    dump_root_tree(&fs)?;
+    //dump_tree(&fs, fs.master_sb.root)?;
 
     //TODO: do we need log tree?
     //TODO: build root tree
+    //TODO: function to obtain offset of a particular tree root
     //TODO: load extent tree
     //TODO: command line argument to interpret a particular block and write it to a file
     //TODO: command line argument to replace a particular block (in all stripes) from a file
     //      and update its checksum
+    //TODO: probably edge cases in tree iteration, so write tests
     Ok(())
 }

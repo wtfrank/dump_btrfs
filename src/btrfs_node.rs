@@ -20,6 +20,21 @@ impl<'a> BtrfsLeafNodeIter<'a> {
         unsafe { &*(self.block.as_ptr() as *const btrfs_header) }
     }
 
+    pub fn peek(&self) -> Option<<Self as Iterator>::Item> {
+        if self.cur_item >= self.header().nritems {
+            return None;
+        }
+
+        let offset = std::mem::size_of::<btrfs_header>()
+            + self.cur_item as usize * std::mem::size_of::<btrfs_item>();
+        let item = unsafe { &*((self.block.as_ptr() as usize + offset) as *const btrfs_item) };
+        let data_offset = std::mem::size_of::<btrfs_header>() + item.offset as usize;
+        Some((
+            item,
+            &self.block[data_offset..(data_offset + item.size as usize)],
+        ))
+    }
+
     //TODO: pub fn search(&self, btrfs_search_options)
 }
 
@@ -69,6 +84,17 @@ pub fn btrfs_internal_node(block: &[u8]) -> BtrfsInternalNodeIter {
 impl<'a> BtrfsInternalNodeIter<'a> {
     pub fn header(&self) -> &btrfs_header {
         unsafe { &*(self.block.as_ptr() as *const btrfs_header) }
+    }
+
+    pub fn peek(&self) -> Option<<Self as Iterator>::Item> {
+        if self.cur_item >= self.header().nritems {
+            return None;
+        }
+
+        let offset = std::mem::size_of::<btrfs_header>()
+            + self.cur_item as usize * std::mem::size_of::<btrfs_key_ptr>();
+        let item = unsafe { &*((self.block.as_ptr() as usize + offset) as *const btrfs_key_ptr) };
+        Some(item)
     }
 
     //TODO: pub fn search(&self, btrfs_search_options)

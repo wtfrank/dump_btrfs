@@ -46,23 +46,23 @@ fn load_sb_at(mf: &MappedFile, offset: usize) -> Result<btrfs_super_block> {
         }
     }
 
-    if sb.total_bytes <= 0 {
+    if sb.total_bytes == 0 {
         return Err(anyhow!("zero length filesystem"));
     }
 
-    if sb.num_devices <= 0 {
+    if sb.num_devices == 0 {
         return Err(anyhow!("no devices in filesystem"));
     }
 
-    if sb.sectorsize <= 0 {
+    if sb.sectorsize == 0 {
         return Err(anyhow!("zero sector size"));
     }
 
-    if sb.nodesize <= 0 {
+    if sb.nodesize == 0 {
         return Err(anyhow!("zero node size"));
     }
 
-    if sb.stripesize <= 0 {
+    if sb.stripesize == 0 {
         return Err(anyhow!("zero stripe size"));
     }
 

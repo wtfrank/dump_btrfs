@@ -58,6 +58,11 @@ impl MappedFile {
         self.len
     }
 
+    /* this function exists to make clippy happy */
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     /// Returns a reference to T. T should be a primitive type or
     /// (probably) #[repr(C)]
     /// panics if the index is out of bounds.
