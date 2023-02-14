@@ -252,6 +252,7 @@ impl<'a> Iterator for BtrfsTreeIter<'a> {
                 continue; //try the parent's parent if it exists
             }
             subtree_start = Some(parent_internal);
+            break;
         }
         if subtree_start.is_none() {
             debug!("reached end of leaf nodes - no parent nodes available");
