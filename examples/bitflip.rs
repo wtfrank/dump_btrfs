@@ -28,12 +28,83 @@ struct Params {
     paths: Vec<std::path::PathBuf>,
 }
 
-fn write_backup(data: &Vec<u8>, path: &Path) -> anyhow::Result<()> {
+fn write_block_to_file(data: &Vec<u8>, path: &Path) -> anyhow::Result<()> {
     let mut file = File::create(&path)?;
 
     file.write_all(data)?;
 
     Ok(())
+}
+
+/* this function expects a specific leaf node block from the extent tree.
+  it fixes the offset of a specific key.
+*/
+fn fix_block(csum_type: BtrfsCsumType, data: &mut Vec<u8>) {
+    let ptr: *mut u8 = data.as_mut_ptr();
+
+    unsafe {
+        let header = ptr as *mut btrfs_header;
+        let owner = (*header).owner;
+        assert_eq!(owner, BTRFS_EXTENT_TREE_OBJECTID);
+        let nritems = (*header).nritems;
+        let start = ptr.add(std::mem::size_of::<btrfs_header>());
+        println!("header: nritems {nritems} header {header:x?} start {start:x?}");
+
+        for i in 0..nritems {
+            let leaf = start.add(i as usize * std::mem::size_of::<btrfs_item>()) as *mut btrfs_item;
+            let objectid = (*leaf).key.objectid;
+            let item_type = (*leaf).key.item_type;
+            let key_offset = (*leaf).key.offset;
+            let offset = (*leaf).offset;
+            let size = (*leaf).size;
+            println!("0x{leaf:x?} {objectid} {item_type:?} {key_offset} {offset} {size}");
+            if objectid == 21866556112896
+                && item_type == BtrfsItemType::EXTENT_ITEM
+                && key_offset == 4503599627378688
+            {
+                println!("BINGO. Found our bad offset: 0x{key_offset:x}");
+                (*leaf).key.offset = key_offset - 0x10000000000000;
+                println!("de-flipped bit");
+            }
+        }
+
+        let slice =
+            &std::slice::from_raw_parts::<u8>(ptr, data.len())[std::mem::size_of::<BtrfsCsum>()..];
+
+        (*header).csum = csum_data(slice, csum_type);
+    }
+}
+
+/* this is a unit test really but final opportunity to prevent messups
+   before data changes are made.
+   checks that the data at the locations matches the data we think is there.
+*/
+fn check_physical_locations_match(
+    physical_locations: &Vec<(u64, &Path)>,
+    corrupt_data: &Vec<u8>,
+) -> anyhow::Result<()> {
+    for (offset, path) in physical_locations {
+        println!("checking {}...", path.display());
+        let mut file = File::open(path)?;
+
+        let mut phys_data = vec![0_u8; corrupt_data.len()];
+
+        println!("seeking to {offset}...");
+        file.seek(std::io::SeekFrom::Start(*offset))?;
+        println!("reading...");
+        file.read(&mut phys_data)?;
+
+        assert_eq!(*corrupt_data, phys_data);
+    }
+    println!("physical data as expected. ✔️");
+    Ok(())
+}
+
+fn write_block_to_physical(
+    data: &Vec<u8>,
+    physical_locations: &Vec<(u64, &Path)>,
+) -> anyhow::Result<()> {
+    Err(anyhow!("TODO"))
 }
 
 fn main() -> anyhow::Result<()> {
@@ -93,14 +164,38 @@ fn main() -> anyhow::Result<()> {
 
     //obtain a read-only slice of this block in memory
     let corrupt_block = load_virt_block(&fs, corrupt_offset)?;
-    let mut v = Vec::new();
-    v.extend_from_slice(corrupt_block);
-    assert_eq!(v.len(), fs.master_sb.nodesize as usize);
+    let mut corrupt_vec = Vec::new();
+    corrupt_vec.extend_from_slice(corrupt_block);
+    assert_eq!(corrupt_vec.len(), fs.master_sb.nodesize as usize);
 
     let backup_filename = format!("offset_{corrupt_offset}_backup.bin");
-    write_backup(&v, Path::new(&backup_filename))?;
+    write_block_to_file(&corrupt_vec, Path::new(&backup_filename))?;
 
-    //TODO: edit the block, update checksum, write block back to all copies
+    // this function is very specific to my fault - rewrites a leaf entry then recalculates the checksum
+    let mut fixed_vec = corrupt_vec.clone();
+    fix_block(fs.master_sb.csum_type, &mut fixed_vec);
 
+    let fixed_filename = format!("offset_{corrupt_offset}_fixed.bin");
+    write_block_to_file(&fixed_vec, Path::new(&fixed_filename))?;
+
+    println!("original block at virtual {corrupt_offset} saved at {backup_filename}. fixed 🤞 block saved at {fixed_filename}");
+
+    //find devices/offsets that the block's virtual address maps to
+    let physical_locations: Vec<(u64, &Path)> = virtual_offset_to_physical(&fs, corrupt_offset)?;
+
+    println!(
+        "found {} physical locs: {:?}",
+        physical_locations.len(),
+        physical_locations
+    );
+
+    //safety first
+    check_physical_locations_match(&physical_locations, &corrupt_vec)?;
+    //write block back to all copies.
+
+    // EXTREMELY IMPORTANT NOTE: Rather than applying the fix directly to the filesystem, do this frst with a qcow2 backed disc under KVM, so that the fix can be tested, and reverted if there's a problem
+    write_block_to_physical(&fixed_vec, &physical_locations)?;
+
+    println!("correct block written to physical location(s)");
     Ok(())
 }

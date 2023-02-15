@@ -144,13 +144,16 @@ pub fn load_virt_block(fs: &FsInfo, virt_offset: u64) -> Result<&[u8]> {
 
 //TODO: could make this into an iterator then use it in the above however
 // the iterator would be a little complex so... maybe later.
-pub fn virtual_offset_to_physical(fs: &FsInfo, virt_offset: u64) -> anyhow::Result<Vec<(u64, &Path)>> {
+pub fn virtual_offset_to_physical(
+    fs: &FsInfo,
+    virt_offset: u64,
+) -> anyhow::Result<Vec<(u64, &Path)>> {
     let node_length = fs.master_sb.nodesize as u64;
 
     let block_offset = virt_offset % node_length;
     let block_start = virt_offset - block_offset;
 
-    let mut results: Vec<(u64,&Path)> = Vec::new();
+    let mut results: Vec<(u64, &Path)> = Vec::new();
 
     for chunk in &fs.bootstrap_chunks {
         let start = chunk.0.offset;
@@ -159,15 +162,14 @@ pub fn virtual_offset_to_physical(fs: &FsInfo, virt_offset: u64) -> anyhow::Resu
             for stripe in &chunk.2 {
                 let devid = stripe.devid;
                 if let Some(dev) = fs.devid_map.get(&devid) {
-                    let dev_offset = block_start -start + stripe.offset + block_offset;
-                    results.push( (dev_offset, dev.path.as_path()));
+                    let dev_offset = block_start - start + stripe.offset + block_offset;
+                    results.push((dev_offset, dev.path.as_path()));
                 }
             }
-            if results.len() > 0 {
-              return Ok(results);
-            }
-            else {
-              return Err(anyhow!("no device containing stripe copy is present"));
+            if !results.is_empty() {
+                return Ok(results);
+            } else {
+                return Err(anyhow!("no device containing stripe copy is present"));
             }
         }
     }
@@ -223,17 +225,16 @@ pub fn virtual_offset_to_physical(fs: &FsInfo, virt_offset: u64) -> anyhow::Resu
             );
             if let Some(dev) = fs.devid_map.get(&devid) {
                 let dev_offset = block_start - start + stripe.offset + block_offset;
-                results.push( (dev_offset, &dev.path.as_path()));
+                results.push((dev_offset, dev.path.as_path()));
             }
         }
     }
 
-    if results.len() > 0 {
-      Ok(results)
+    if !results.is_empty() {
+        Ok(results)
+    } else {
+        Err(anyhow!(
+            "virt address {virt_offset} not found among available chunks/devices"
+        ))
     }
-    else {
-Err(anyhow!(
-        "virt address {virt_offset} not found among available chunks/devices"
-    ))
- }
 }
