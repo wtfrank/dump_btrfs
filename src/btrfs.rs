@@ -1,3 +1,4 @@
+use crate::dump::fmt_treeid;
 use crate::mapped_file::MappedFile;
 use crate::structures::*;
 use crate::tree::*;
@@ -10,7 +11,8 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-/// on loading w
+/// btrfs-kit is a library that provides tools to help with recovery of
+/// corrupted btrfs filesystems.
 ///
 /// btrfsprogs does quite a lot of work when opening a btrfs filesystem.
 /// It uses libblkid to scan devices and identify those that are part of
@@ -231,6 +233,47 @@ pub fn load_fs(paths: &Vec<PathBuf>) -> Result<FsInfo> {
         master_sb: sb,
         bootstrap_chunks: initial_chunks,
     })
+}
+
+pub fn tree_root_offset(fs: &FsInfo, tree_id: u64) -> Option<u64> {
+    let root = fs.master_sb.root;
+    let search = NodeSearchOption {
+        min_key: btrfs_disk_key {
+            objectid: tree_id,
+            item_type: BtrfsItemType::ROOT_ITEM,
+            offset: 0,
+        },
+        max_key: btrfs_disk_key {
+            objectid: tree_id,
+            item_type: BtrfsItemType::ROOT_ITEM,
+            offset: u64::MAX,
+        },
+        min_match: std::cmp::Ordering::Less,
+        max_match: std::cmp::Ordering::Greater,
+    };
+
+    if let Some((leaf, data, _block_offset, _leaf_pos)) =
+        BtrfsTreeIter::new(fs, root, search).next()
+    {
+        let btrfs_disk_key {
+            objectid,
+            item_type,
+            offset,
+        } = leaf.key;
+        let size = leaf.size;
+
+        assert_eq!(item_type, BtrfsItemType::ROOT_ITEM);
+        assert_eq!(size as usize, std::mem::size_of::<btrfs_root_item>());
+        let root_item = unsafe { &*((data.as_ptr()) as *const btrfs_root_item) };
+        let tree_root = root_item.bytenr;
+        println!(
+            "leaf {} {item_type:?} {offset} data size {} tree root {tree_root}",
+            fmt_treeid(objectid),
+            size
+        );
+        return Some(tree_root);
+    }
+    None
 }
 
 #[cfg(test)]

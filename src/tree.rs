@@ -1,4 +1,3 @@
-use crate::address::*;
 use crate::btrfs::*;
 use crate::btrfs_node::*;
 use crate::structures::*;
@@ -79,8 +78,7 @@ impl<'a> BtrfsTreeIter<'a> {
 
     //Iterator trait helper function (maybe useful outside iterator with a bit of rework)
     fn find_key(&self) -> Option<(Vec<BtrfsInternalNodeIter<'a>>, BtrfsLeafNodeIter<'a>)> {
-        let mut internal_block = load_virt_block(self.fs, self.root).ok()?;
-        let mut internal_node = btrfs_internal_node(internal_block);
+        let mut internal_node = btrfs_internal_node(self.fs, self.root).ok()?;
         let mut node_stack = Vec::new();
         debug!("starting search at depth {}", internal_node.header().level);
         //let header = load_virt::<btrfs_header>(self.fs, self.root).ok()?;
@@ -127,15 +125,13 @@ impl<'a> BtrfsTreeIter<'a> {
                         }
                         _ => {
                             node_stack.push(internal_node);
-                            internal_block = load_virt_block(self.fs, lk.blockptr).ok()?;
-                            internal_node = btrfs_internal_node(internal_block);
+                            internal_node = btrfs_internal_node(self.fs, lk.blockptr).ok()?;
                             break;
                         }
                     },
                     Ordering::Equal => {
                         node_stack.push(internal_node);
-                        internal_block = load_virt_block(self.fs, lk.blockptr).ok()?;
-                        internal_node = btrfs_internal_node(internal_block);
+                        internal_node = btrfs_internal_node(self.fs, lk.blockptr).ok()?;
                         break;
                     }
                     Ordering::Less => match right_key {
@@ -143,8 +139,7 @@ impl<'a> BtrfsTreeIter<'a> {
                             trace!("right key is None");
                             //if there is no key to the right then our key could be within the child nodes
                             node_stack.push(internal_node);
-                            internal_block = load_virt_block(self.fs, lk.blockptr).ok()?;
-                            internal_node = btrfs_internal_node(internal_block);
+                            internal_node = btrfs_internal_node(self.fs, lk.blockptr).ok()?;
                             break;
                         }
                         Some(rk) => {
@@ -156,8 +151,7 @@ impl<'a> BtrfsTreeIter<'a> {
                             );
                             if cmp_rk == Ordering::Greater {
                                 node_stack.push(internal_node);
-                                internal_block = load_virt_block(self.fs, lk.blockptr).ok()?;
-                                internal_node = btrfs_internal_node(internal_block);
+                                internal_node = btrfs_internal_node(self.fs, lk.blockptr).ok()?;
                                 break;
                             }
                             //otherwise we try the next key in the node
@@ -181,7 +175,7 @@ impl<'a> BtrfsTreeIter<'a> {
  */
 
 impl<'a> Iterator for BtrfsTreeIter<'a> {
-    type Item = (&'a btrfs_item, &'a [u8]);
+    type Item = (&'a btrfs_item, &'a [u8], u64, u32);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur_leaf_node.is_none() {
@@ -200,10 +194,6 @@ impl<'a> Iterator for BtrfsTreeIter<'a> {
                     break;
                 }
                 right_leaf = ln.peek();
-                if right_leaf.is_none() {
-                    //FIXME: we need to peek back up the tree and find the first leaf entry in the
-                    //next leaf node so we can properly evaluate whether our search key lies between keys.
-                }
 
                 let ll = left_leaf.unwrap();
                 let cmp_min = cmp_key(&ll.0.key, &self.options.min_key);
@@ -265,7 +255,7 @@ impl<'a> Iterator for BtrfsTreeIter<'a> {
         while internal_node.header().level != 0 {
             let child = internal_node.next()?; //every internal node has at least 1 entry
             self.internal_node_stack.push(internal_node);
-            internal_node = btrfs_internal_node(load_virt_block(self.fs, child.blockptr).ok()?);
+            internal_node = btrfs_internal_node(self.fs, child.blockptr).ok()?;
         }
         let leaf_node = internal_node.as_leaf_node();
         self.cur_leaf_node = Some(leaf_node);

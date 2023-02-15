@@ -1,4 +1,4 @@
-use btrfs_rs::structures::*;
+use btrfs_kit::structures::*;
 
 fn default_btrfs_dev_item() -> btrfs_dev_item {
     btrfs_dev_item {

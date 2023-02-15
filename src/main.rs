@@ -14,7 +14,8 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
     let args = Params::parse();
 
-    btrfs_rs::dump::dump_fs(&args.paths)?;
+    let fs = btrfs_kit::btrfs::load_fs(&args.paths)?;
+    btrfs_kit::dump::dump_fs(&fs)?;
 
     Ok(())
 }

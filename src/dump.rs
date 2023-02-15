@@ -5,7 +5,6 @@ use crate::tree::*;
 
 use anyhow::*;
 use more_asserts::*;
-use std::path::PathBuf;
 
 fn uuid_str(uuid: &BtrfsUuid) -> String {
     std::format!(
@@ -132,7 +131,7 @@ pub fn dump_tree(fs: &FsInfo, root: LE64) -> Result<()> {
         min_match: std::cmp::Ordering::Less,
         max_match: std::cmp::Ordering::Greater,
     };
-    for (leaf, _data) in BtrfsTreeIter::new(fs, root, search) {
+    for (leaf, _data, _block_offset, leaf_number) in BtrfsTreeIter::new(fs, root, search) {
         let btrfs_disk_key {
             objectid,
             item_type,
@@ -141,7 +140,7 @@ pub fn dump_tree(fs: &FsInfo, root: LE64) -> Result<()> {
         let size = leaf.size;
 
         println!(
-            "leaf {} {item_type:?} {offset} data size {}",
+            "leaf #{leaf_number} {} {item_type:?} {offset} data size {}",
             fmt_treeid(objectid),
             size
         );
@@ -173,7 +172,7 @@ pub fn dump_root_tree(fs: &FsInfo) -> Result<()> {
         min_match: std::cmp::Ordering::Less,
         max_match: std::cmp::Ordering::Greater,
     };
-    for (leaf, data) in BtrfsTreeIter::new(fs, root, search) {
+    for (leaf, data, _block_offset, leaf_pos) in BtrfsTreeIter::new(fs, root, search) {
         let btrfs_disk_key {
             objectid,
             item_type,
@@ -187,7 +186,7 @@ pub fn dump_root_tree(fs: &FsInfo) -> Result<()> {
                 let root_item = unsafe { &*((data.as_ptr()) as *const btrfs_root_item) };
                 let tree_root = root_item.bytenr;
                 println!(
-                    "leaf {} {item_type:?} {offset} data size {} tree root {tree_root}",
+                    "leaf #{leaf_pos} {} {item_type:?} {offset} data size {} tree root {tree_root}",
                     fmt_treeid(objectid),
                     size
                 );
@@ -214,12 +213,11 @@ pub fn dump_root_tree(fs: &FsInfo) -> Result<()> {
     Ok(())
 }
 
-pub fn dump_fs(paths: &Vec<PathBuf>) -> Result<()> {
-    let fs = load_fs(paths)?;
+pub fn dump_fs(fs: &FsInfo) -> Result<()> {
     let sb = fs.master_sb;
     dump_sb(&sb);
 
-    dump_chunks(&sb);
+    //dump_chunks(&sb);
 
     for (devid, di) in fs.devid_map.iter() {
         println!("devid {} is {}", devid, di.path.display());
@@ -230,7 +228,7 @@ pub fn dump_fs(paths: &Vec<PathBuf>) -> Result<()> {
     // There are two things we need to be able to do with these trees,
     // iterate through an entire tree (perhaps until a condition is met),
     // and identify a specific key (or part of a key) in a tree.
-    let ct_header = load_virt::<btrfs_header>(&fs, sb.chunk_root)?;
+    let ct_header = load_virt::<btrfs_header>(fs, sb.chunk_root)?;
     assert_eq!(ct_header.fsid, fs.fsid);
     let bn = ct_header.bytenr;
     let cr = fs.master_sb.chunk_root;
@@ -255,7 +253,7 @@ pub fn dump_fs(paths: &Vec<PathBuf>) -> Result<()> {
     let key_ptr_start: u64 = sb.chunk_root + std::mem::size_of::<btrfs_header>() as u64;
     for i in 0..ct_nri {
         let int_node = load_virt::<btrfs_key_ptr>(
-            &fs,
+            fs,
             key_ptr_start + i as u64 * std::mem::size_of::<btrfs_key_ptr>() as u64,
         )?;
         let oid = int_node.key.objectid;
@@ -271,16 +269,16 @@ pub fn dump_fs(paths: &Vec<PathBuf>) -> Result<()> {
 
     //let's look at one chunk item.
     let block_ptr = load_virt::<btrfs_key_ptr>(
-        &fs,
+        fs,
         key_ptr_start + std::mem::size_of::<btrfs_key_ptr>() as u64,
     )?
     .blockptr;
-    let node = load_virt::<btrfs_header>(&fs, block_ptr)?;
+    let node = load_virt::<btrfs_header>(fs, block_ptr)?;
     dump_node_header(node);
     let node_items_start = block_ptr + std::mem::size_of::<btrfs_header>() as u64;
     for i in 0..node.nritems {
         let leaf_node = load_virt::<btrfs_item>(
-            &fs,
+            fs,
             node_items_start + i as u64 * std::mem::size_of::<btrfs_item>() as u64,
         )?;
         let oid = leaf_node.key.objectid;
@@ -296,8 +294,11 @@ pub fn dump_fs(paths: &Vec<PathBuf>) -> Result<()> {
     }
 
     println!("root tree");
-    dump_root_tree(&fs)?;
-    //dump_tree(&fs, fs.master_sb.root)?;
+    dump_root_tree(fs)?;
+
+    let extent_tree_root = tree_root_offset(fs, BTRFS_EXTENT_TREE_OBJECTID).unwrap();
+    println!("root of extent tree: {}", extent_tree_root);
+    dump_tree(fs, extent_tree_root)?;
 
     //TODO: do we need log tree?
     //TODO: build root tree
