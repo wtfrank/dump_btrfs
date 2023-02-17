@@ -343,3 +343,10 @@ pub struct btrfs_root_ref {
     pub name_len: LE16,
     /* the name follows here */
 }
+
+#[repr(C, packed)]
+pub struct btrfs_extent_item {
+	pub refs: LE64,
+	pub generation: LE64,
+	pub flags: LE64,
+}
